@@ -94,6 +94,46 @@ cargo tauri dev
 | Compression | [zip](https://github.com/zip-rs/zip2) (deflate) |
 | Integrity | [sha2](https://github.com/RustCrypto/hashes) (SHA-256) |
 
+## Testing on Steam Deck
+
+1. **Build the AppImage** — Push a version tag to trigger the release workflow:
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+   Or build locally on a Linux machine: `cargo tauri build`
+
+2. **Transfer to Deck** — Copy the `.AppImage` to your Steam Deck (via USB, SSH, or Syncthing)
+
+3. **Run the setup script** — In Desktop Mode, open a terminal:
+   ```bash
+   bash scripts/deck-test-setup.sh
+   ```
+   This makes the AppImage executable and installs a `.desktop` shortcut.
+
+4. **Launch** — Open DeckSave from the application menu or run the AppImage directly
+
+5. **Verify**
+   - Dashboard should detect your installed Steam games
+   - Tap a game and create a backup — check that the zip appears in `~/.local/share/com.decksave.app/backups/`
+   - Enable the file watcher and confirm it triggers on save file changes
+   - (Optional) Set up Syncthing on both devices and test sync via the Sync Wizard
+
+> **Note:** Syncthing must be installed separately on the Deck (`flatpak install flathub me.kozec.syncthingtk` or via `pacman`).
+
+## Roadmap
+
+DeckSave is currently at **v0.1.0 (MVP)**. Planned improvements:
+
+- [ ] **Auto-updater** — In-app update checks via Tauri's updater plugin
+- [ ] **Non-Steam game support** — Manual path entry for GOG, Epic, emulators, etc.
+- [ ] **Cloud backup option** — Optional upload to a cloud provider (S3, Backblaze B2) as a secondary backup target
+- [ ] **Per-game sync rules** — Choose which games sync and which stay local
+- [ ] **UI themes** — Light mode, OLED-optimized dark theme
+- [ ] **Backup browser** — View and diff individual files inside backup zips
+- [ ] **Import/export settings** — Transfer DeckSave config between machines
+- [ ] **Flatpak packaging** — Publish to Flathub for easier Deck installation
+
 ## Credits & Acknowledgments
 
 This project builds on the work of several open-source projects:
