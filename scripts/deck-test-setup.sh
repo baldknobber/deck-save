@@ -39,7 +39,7 @@ cat > "$DESKTOP_FILE" << EOF
 [Desktop Entry]
 Name=DeckSave
 Comment=Backup and sync game saves across devices
-Exec=$APPIMAGE_DIR/$APPIMAGE_NAME.AppImage
+Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 $APPIMAGE_DIR/$APPIMAGE_NAME.AppImage
 Icon=decksave
 Type=Application
 Categories=Game;Utility;
