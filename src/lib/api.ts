@@ -61,3 +61,88 @@ export async function updateSetting(
 ): Promise<void> {
   return invoke("update_setting", { key, value });
 }
+
+export async function getSteamHeaderUrl(
+  steamId: string,
+): Promise<string | null> {
+  return invoke<string | null>("get_steam_header_url", { steamId });
+}
+
+// ── Sync (Syncthing) ─────────────────────────────────────────────
+
+export interface SyncStatus {
+  available: boolean;
+  running: boolean;
+  my_device_id: string;
+  uptime: number;
+  api_key: string;
+}
+
+export interface SyncDevice {
+  device_id: string;
+  name: string;
+  connected: boolean;
+  paused: boolean;
+}
+
+export interface SyncFolder {
+  id: string;
+  label: string;
+  path: string;
+  folder_type: string;
+  paused: boolean;
+  completion: number;
+}
+
+export interface ConflictFile {
+  path: string;
+  game_folder: string;
+}
+
+export async function syncStatus(): Promise<SyncStatus> {
+  return invoke<SyncStatus>("sync_status");
+}
+
+export async function syncListDevices(): Promise<SyncDevice[]> {
+  return invoke<SyncDevice[]>("sync_list_devices");
+}
+
+export async function syncAddDevice(
+  deviceId: string,
+  name: string,
+): Promise<void> {
+  return invoke("sync_add_device", { deviceId, name });
+}
+
+export async function syncRemoveDevice(deviceId: string): Promise<void> {
+  return invoke("sync_remove_device", { deviceId });
+}
+
+export async function syncShareFolder(
+  syncMode: string,
+): Promise<{ folder_id: string; success: boolean }> {
+  return invoke("sync_share_folder", { syncMode });
+}
+
+export async function syncRemoveFolder(folderId: string): Promise<void> {
+  return invoke("sync_remove_folder", { folderId });
+}
+
+export async function syncFolderStatus(): Promise<SyncFolder[]> {
+  return invoke<SyncFolder[]>("sync_folder_status");
+}
+
+export async function syncDetectConflicts(): Promise<ConflictFile[]> {
+  return invoke<ConflictFile[]>("sync_detect_conflicts");
+}
+
+export async function syncResolveConflict(path: string): Promise<void> {
+  return invoke("sync_resolve_conflict", { path });
+}
+
+export async function syncUpdateSettings(
+  apiKey?: string,
+  baseUrl?: string,
+): Promise<void> {
+  return invoke("sync_update_settings", { apiKey, baseUrl });
+}
