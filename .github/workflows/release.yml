@@ -81,8 +81,48 @@ jobs:
           name: release-${{ matrix.target }}
           path: release-artifacts/
 
-  publish:
+  build-flatpak:
     needs: build-and-release
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-x86_64-unknown-linux-gnu
+          path: release-artifacts/
+
+      - name: Extract binary from deb
+        run: |
+          mkdir -p deb-extract
+          dpkg-deb -x release-artifacts/*.deb deb-extract/
+          find deb-extract -type f -name 'deck-save' -o -name 'DeckSave' | head -1 | xargs -I{} cp {} flatpak/deck-save
+          chmod +x flatpak/deck-save
+          ls -la flatpak/deck-save
+
+      - name: Install Flatpak tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.gnome.Platform//46 org.gnome.Sdk//46
+
+      - name: Build Flatpak
+        run: |
+          cd flatpak
+          flatpak-builder --force-clean --repo=repo builddir com.baldknobber.decksave.yml
+          flatpak build-bundle repo DeckSave.flatpak com.baldknobber.decksave
+
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-flatpak
+          path: flatpak/DeckSave.flatpak
+
+  publish:
+    needs: [build-and-release, build-flatpak]
     runs-on: ubuntu-22.04
 
     steps:

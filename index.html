@@ -7,6 +7,42 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <div style="color:#fff;background:#1e1e2e;padding:2rem;font-family:sans-serif">
+        <h1>DeckSave</h1>
+        <p>JavaScript is required but failed to load. This usually means:</p>
+        <ul>
+          <li>WebKitGTK is missing (SteamOS needs the Flatpak version)</li>
+          <li>The CSP policy is blocking scripts</li>
+        </ul>
+        <p>Try: <code>flatpak run com.baldknobber.decksave</code></p>
+      </div>
+    </noscript>
+    <div id="startup-fallback" style="display:none;color:#fff;background:#1e1e2e;padding:2rem;font-family:sans-serif;position:fixed;inset:0;z-index:9999">
+      <h1>DeckSave — Loading Error</h1>
+      <p>The app started but the UI failed to render. Diagnostics:</p>
+      <pre id="startup-diag" style="background:#000;padding:1rem;border-radius:8px;overflow:auto;max-height:60vh"></pre>
+      <p style="margin-top:1rem">Report this at: <strong>github.com/baldknobber/deck-save/issues</strong></p>
+    </div>
+    <script>
+      // If React hasn't mounted after 5 seconds, show diagnostics
+      setTimeout(function() {
+        var root = document.getElementById('root');
+        if (root && root.children.length === 0) {
+          var diag = document.getElementById('startup-diag');
+          var info = [];
+          info.push('User-Agent: ' + navigator.userAgent);
+          info.push('Platform: ' + navigator.platform);
+          info.push('URL: ' + location.href);
+          info.push('Root children: ' + root.children.length);
+          info.push('Scripts loaded: ' + document.scripts.length);
+          try { info.push('WebKitGTK: ' + (window.webkit ? 'detected' : 'not found')); } catch(e) { info.push('WebKit check error: ' + e); }
+          if (diag) diag.textContent = info.join('\n');
+          var fb = document.getElementById('startup-fallback');
+          if (fb) fb.style.display = 'block';
+        }
+      }, 5000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

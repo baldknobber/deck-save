@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=DeckSave
+Comment=Backup and sync game saves across devices
+Exec=deck-save
+Icon=com.baldknobber.decksave
+Type=Application
+Categories=Game;Utility;
+Keywords=save;backup;sync;steam;deck;
+StartupNotify=true
+Terminal=false

@@ -26,6 +26,15 @@ pub fn run() {
         if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
+        eprintln!("[DeckSave] Platform: Linux");
+        eprintln!("[DeckSave] WEBKIT_DISABLE_DMABUF_RENDERER={}", std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").unwrap_or_default());
+        eprintln!("[DeckSave] XDG_SESSION_TYPE={}", std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "unset".into()));
+        eprintln!("[DeckSave] GDK_BACKEND={}", std::env::var("GDK_BACKEND").unwrap_or_else(|_| "unset".into()));
+        if let Ok(contents) = std::fs::read_to_string("/etc/os-release") {
+            for line in contents.lines().take(3) {
+                eprintln!("[DeckSave] {}", line);
+            }
+        }
     }
 
     tauri::Builder::default()

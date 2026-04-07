@@ -46,17 +46,18 @@ A lightweight desktop app for **backing up and syncing game save files** across 
 ### Windows
 Download the `.msi` or `.exe` installer from [Releases](https://github.com/baldknobber/deck-save/releases).
 
-### Steam Deck / Linux
-One-liner install (downloads the latest release automatically):
+### Steam Deck / Linux (Flatpak — recommended)
+One-liner install (bundles all dependencies, works on SteamOS):
+```bash
+curl -sL https://raw.githubusercontent.com/baldknobber/deck-save/master/scripts/deck-install-flatpak.sh | bash
+```
+Then run: `flatpak run com.baldknobber.decksave`
+
+### Linux (AppImage — requires webkit2gtk-4.1)
 ```bash
 curl -sL https://raw.githubusercontent.com/baldknobber/deck-save/master/scripts/deck-install.sh | bash
 ```
-
-Or download the `.AppImage` manually from [Releases](https://github.com/baldknobber/deck-save/releases):
-```bash
-chmod +x DeckSave_*.AppImage
-./DeckSave_*.AppImage
-```
+> **Note:** The AppImage requires `webkit2gtk-4.1` installed on your system. SteamOS does not ship this — use the Flatpak instead.
 
 ## Building from Source
 
@@ -99,14 +100,21 @@ cargo tauri dev
 1. **Switch to Desktop Mode** on your Steam Deck
 2. **Open Konsole** and run:
    ```bash
-   curl -sL https://raw.githubusercontent.com/baldknobber/deck-save/master/scripts/deck-install.sh | bash
+   curl -sL https://raw.githubusercontent.com/baldknobber/deck-save/master/scripts/deck-install-flatpak.sh | bash
    ```
-   This downloads the latest AppImage, installs it to `~/Applications/`, and creates a desktop shortcut.
+   This downloads the Flatpak bundle (includes webkit2gtk) and installs it.
 
-3. **Launch** — Open DeckSave from the application menu or run:
+3. **Launch**:
    ```bash
-   ~/Applications/DeckSave.AppImage
+   flatpak run com.baldknobber.decksave
    ```
+   Or find DeckSave in your application menu.
+
+4. **Troubleshooting** — If you get a white screen or errors:
+   ```bash
+   flatpak run com.baldknobber.decksave 2>&1 | head -30
+   ```
+   The app prints platform diagnostics on startup. Report the output at [github.com/baldknobber/deck-save/issues](https://github.com/baldknobber/deck-save/issues).
 
 5. **Verify**
    - Dashboard should detect your installed Steam games
@@ -127,7 +135,7 @@ DeckSave is currently at **v0.1.0 (MVP)**. Planned improvements:
 - [ ] **UI themes** — Light mode, OLED-optimized dark theme
 - [ ] **Backup browser** — View and diff individual files inside backup zips
 - [ ] **Import/export settings** — Transfer DeckSave config between machines
-- [ ] **Flatpak packaging** — Publish to Flathub for easier Deck installation
+- [x] **Flatpak packaging** — Bundled for Steam Deck / SteamOS (no system webkit2gtk needed)
 
 ## Credits & Acknowledgments
 

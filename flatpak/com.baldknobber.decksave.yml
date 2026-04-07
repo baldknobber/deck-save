@@ -1,0 +1,41 @@
+id: com.baldknobber.decksave
+runtime: org.gnome.Platform
+runtime-version: '46'
+sdk: org.gnome.Sdk
+command: deck-save
+
+finish-args:
+  # Display
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  # Network (Syncthing sync)
+  - --share=network
+  # Home directory (game saves, backups)
+  - --filesystem=home
+  # SD card (Steam Deck external storage)
+  - --filesystem=/run/media:ro
+  # Steam directories (game detection)
+  - --filesystem=~/.steam:ro
+  - --filesystem=~/.local/share/Steam:ro
+  # Desktop notifications
+  - --talk-name=org.freedesktop.Notifications
+  # System tray
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # WebKitGTK EGL workaround for AMD APUs
+  - --env=WEBKIT_DISABLE_DMABUF_RENDERER=1
+
+modules:
+  - name: deck-save
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 deck-save /app/bin/deck-save
+      - install -Dm644 com.baldknobber.decksave.desktop /app/share/applications/com.baldknobber.decksave.desktop
+      - install -Dm644 com.baldknobber.decksave.metainfo.xml /app/share/metainfo/com.baldknobber.decksave.metainfo.xml
+    sources:
+      - type: file
+        path: deck-save
+      - type: file
+        path: com.baldknobber.decksave.desktop
+      - type: file
+        path: com.baldknobber.decksave.metainfo.xml

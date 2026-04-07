@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.baldknobber.decksave</id>
+  <name>DeckSave</name>
+  <summary>Backup and sync game saves across devices</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      DeckSave automatically detects your Steam games and backs up their save files.
+      Sync saves between Steam Deck, Windows PC, and Linux via Syncthing.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/baldknobber/deck-save</url>
+  <url type="bugtracker">https://github.com/baldknobber/deck-save/issues</url>
+  <launchable type="desktop-id">com.baldknobber.decksave.desktop</launchable>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-04-07">
+      <description>
+        <p>Initial release — MVP with Steam game detection, backup/restore, file watching, and Syncthing sync.</p>
+      </description>
+    </release>
+  </releases>
+</component>
