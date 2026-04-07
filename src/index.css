@@ -10,4 +10,42 @@ body {
   @apply bg-gray-900 text-gray-100;
   margin: 0;
   min-height: 100vh;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Deck-friendly focus rings — visible for gamepad/keyboard navigation */
+*:focus-visible {
+  @apply outline-none ring-2 ring-blue-500 ring-offset-2 ring-offset-gray-900;
+}
+
+/* Remove default focus outlines (focus-visible handles gamepad/keyboard) */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Custom scrollbar — thinner but still touchable */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-gray-900;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-700 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-600;
+}
+
+/* Smooth scrolling for gamepad */
+* {
+  scroll-behavior: smooth;
+}
+
+/* Prevent text selection on interactive elements (Deck touchscreen) */
+button, [role="button"], [data-deck-focusable] {
+  -webkit-user-select: none;
+  user-select: none;
 }

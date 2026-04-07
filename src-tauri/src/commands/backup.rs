@@ -92,20 +92,32 @@ pub(crate) fn create_backup_zip(
         .compression_method(zip::CompressionMethod::Deflated);
 
     let mut files_added: usize = 0;
+    let mut used_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for save_path_str in save_paths {
+    for (path_idx, save_path_str) in save_paths.iter().enumerate() {
         let save_path = PathBuf::from(save_path_str);
         if !save_path.exists() {
             eprintln!("[DeckSave] Save path not found, skipping: {save_path_str}");
             continue;
         }
 
+        // Prefix to disambiguate when multiple save paths have overlapping file names
+        let prefix = if save_paths.len() > 1 {
+            format!("path{}/", path_idx)
+        } else {
+            String::new()
+        };
+
         if save_path.is_file() {
-            let entry_name = save_path
+            let base_name = save_path
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
+            let entry_name = format!("{prefix}{base_name}");
+            if !used_names.insert(entry_name.clone()) {
+                continue; // skip exact duplicate
+            }
             zip_writer
                 .start_file(&entry_name, options)
                 .map_err(|e| format!("Zip start_file error: {e}"))?;
@@ -124,7 +136,10 @@ pub(crate) fn create_backup_zip(
                     .path()
                     .strip_prefix(&save_path)
                     .unwrap_or(entry.path());
-                let entry_name = rel.to_string_lossy().replace('\\', "/");
+                let entry_name = format!("{prefix}{}", rel.to_string_lossy().replace('\\', "/"));
+                if !used_names.insert(entry_name.clone()) {
+                    continue; // skip exact duplicate
+                }
                 zip_writer
                     .start_file(&entry_name, options)
                     .map_err(|e| format!("Zip start_file error: {e}"))?;
@@ -422,35 +437,69 @@ pub fn restore_game(
         }
     }
 
-    // Extract the zip into the first save path directory.
-    // The first save_path is treated as the primary restore target.
-    let target_dir = PathBuf::from(&save_paths[0]);
-    let target_dir = if target_dir.extension().is_some() {
-        // If the save_path looks like a file, use its parent dir
-        target_dir
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or(target_dir)
-    } else {
-        target_dir
-    };
-    fs::create_dir_all(&target_dir)
-        .map_err(|e| format!("Cannot create restore dir: {e}"))?;
-
+    // Extract zip entries back to their original save path directories.
+    // Entries prefixed with "pathN/" go to save_paths[N].
+    // Entries without a prefix go to save_paths[0] (single-path backups or legacy).
     let zip_file =
         fs::File::open(&zip_path).map_err(|e| format!("Cannot open backup zip: {e}"))?;
     let mut archive =
         zip::ZipArchive::new(zip_file).map_err(|e| format!("Invalid zip archive: {e}"))?;
+
+    // Pre-compute target dirs for each save path
+    let target_dirs: Vec<PathBuf> = save_paths
+        .iter()
+        .map(|sp| {
+            let p = PathBuf::from(sp);
+            if p.extension().is_some() {
+                p.parent().map(|par| par.to_path_buf()).unwrap_or(p)
+            } else {
+                p
+            }
+        })
+        .collect();
+
+    // Ensure all target dirs exist
+    for dir in &target_dirs {
+        fs::create_dir_all(dir)
+            .map_err(|e| format!("Cannot create restore dir {}: {e}", dir.display()))?;
+    }
+
+    let default_target = &target_dirs[0];
 
     for i in 0..archive.len() {
         let mut entry = archive
             .by_index(i)
             .map_err(|e| format!("Zip read error: {e}"))?;
 
-        let Some(name) = entry.enclosed_name() else {
-            continue; // skip suspicious paths
+        let entry_name = entry.name().to_string();
+
+        // Determine target dir and relative path within it
+        let (target_dir, rel_name) = if let Some(rest) = entry_name.strip_prefix("path") {
+            // Try to parse "pathN/..."
+            if let Some(slash_pos) = rest.find('/') {
+                if let Ok(idx) = rest[..slash_pos].parse::<usize>() {
+                    let rel = &rest[slash_pos + 1..];
+                    if idx < target_dirs.len() && !rel.is_empty() {
+                        (&target_dirs[idx], rel.to_string())
+                    } else {
+                        (default_target, entry_name.clone())
+                    }
+                } else {
+                    (default_target, entry_name.clone())
+                }
+            } else {
+                (default_target, entry_name.clone())
+            }
+        } else {
+            (default_target, entry_name.clone())
         };
-        let out_path = target_dir.join(name);
+
+        let out_path = target_dir.join(&rel_name);
+
+        // Validate: don't allow path traversal outside target
+        if !out_path.starts_with(target_dir) {
+            continue;
+        }
 
         if entry.is_dir() {
             fs::create_dir_all(&out_path)
@@ -469,7 +518,7 @@ pub fn restore_game(
 
     eprintln!(
         "[DeckSave] Restored \"{title}\" from backup {b_id} → {}",
-        target_dir.display()
+        default_target.display()
     );
 
     Ok(())

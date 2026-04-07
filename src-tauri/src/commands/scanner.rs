@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::collections::HashSet;
+use std::io::Read;
 use std::path::PathBuf;
 
 use crate::manifest;
@@ -15,6 +16,65 @@ pub struct Game {
     pub save_path_count: usize,
     pub last_backup: Option<String>,
     pub status: String,
+}
+
+#[tauri::command]
+pub fn get_steam_header_url(
+    steam_id: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<Option<String>, String> {
+    // Check in-memory cache first
+    {
+        let cache = state
+            .header_url_cache
+            .lock()
+            .map_err(|e| format!("Cache lock error: {e}"))?;
+        if let Some(cached) = cache.get(&steam_id) {
+            return Ok(cached.clone());
+        }
+    }
+
+    // Validate steam_id is numeric to prevent injection
+    if !steam_id.chars().all(|c| c.is_ascii_digit()) {
+        return Err("Invalid steam ID".to_string());
+    }
+
+    // Fetch from Steam Store API
+    let url = format!(
+        "https://store.steampowered.com/api/appdetails?appids={}",
+        steam_id
+    );
+    let result = match ureq::get(&url).call() {
+        Ok(resp) => {
+            let mut body_str = String::new();
+            resp.into_reader()
+                .take(1_000_000)
+                .read_to_string(&mut body_str)
+                .map_err(|e| format!("Read error: {e}"))?;
+            let body: serde_json::Value = serde_json::from_str(&body_str)
+                .map_err(|e| format!("JSON parse error: {e}"))?;
+            body.get(&steam_id)
+                .and_then(|app: &serde_json::Value| app.get("data"))
+                .and_then(|data: &serde_json::Value| data.get("header_image"))
+                .and_then(|v: &serde_json::Value| v.as_str())
+                .map(|s: &str| s.to_string())
+        }
+        Err(e) => {
+            eprintln!("[DeckSave] Steam API request failed for {}: {}", steam_id, e);
+            None
+        }
+    };
+
+    // Cache the result (even None, to avoid repeated failed requests)
+    {
+        let mut cache = state
+            .header_url_cache
+            .lock()
+            .map_err(|e| format!("Cache lock error: {e}"))?;
+        cache.insert(steam_id, result.clone());
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]

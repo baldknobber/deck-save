@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   scanGames,
   getCachedGames,
@@ -6,15 +6,83 @@ import {
   backupGame,
   restoreGame,
   getBackups,
+  getSteamHeaderUrl,
   type Game,
   type BackupRecord,
 } from "../lib/api";
 import { listen } from "@tauri-apps/api/event";
+import { DeckButton, DeckCard, DeckInput, DeckModal, DeckStatusBadge } from "../components/deck";
+import { useGridNav } from "../hooks/useGridNav";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function steamImageUrls(steamId: string | null): string[] {
+  if (!steamId) return [];
+  return [
+    // Classic CDN (works for most games)
+    `https://cdn.akamai.steamstatic.com/steam/apps/${steamId}/header.jpg`,
+    // New CDN for newer games (2025+)
+    `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamId}/header.jpg`,
+    // Alternate CDN
+    `https://steamcdn-a.akamaihd.net/steam/apps/${steamId}/header.jpg`,
+    // Capsule fallback (different aspect but better than nothing)
+    `https://cdn.akamai.steamstatic.com/steam/apps/${steamId}/capsule_616x353.jpg`,
+    `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamId}/capsule_616x353.jpg`,
+  ];
+}
+
+function GameImage({ steamId, title }: { steamId: string | null; title: string }) {
+  const [urlIndex, setUrlIndex] = useState(0);
+  const [apiUrl, setApiUrl] = useState<string | null | undefined>(undefined); // undefined = not fetched yet
+  const urls = steamImageUrls(steamId);
+
+  const allCdnFailed = urls.length === 0 || urlIndex >= urls.length;
+
+  useEffect(() => {
+    if (allCdnFailed && apiUrl === undefined && steamId) {
+      getSteamHeaderUrl(steamId).then(
+        (url) => setApiUrl(url),
+        () => setApiUrl(null),
+      );
+    }
+  }, [allCdnFailed, apiUrl, steamId]);
+
+  // Still trying CDN URLs
+  if (!allCdnFailed) {
+    return (
+      <img
+        src={urls[urlIndex]}
+        alt={title}
+        loading="lazy"
+        onError={() => setUrlIndex((i) => i + 1)}
+        className="w-full aspect-[460/215] object-cover rounded-t-xl"
+      />
+    );
+  }
+
+  // CDN failed, try API URL
+  if (apiUrl) {
+    return (
+      <img
+        src={apiUrl}
+        alt={title}
+        loading="lazy"
+        onError={() => setApiUrl(null)} // give up on error
+        className="w-full aspect-[460/215] object-cover rounded-t-xl"
+      />
+    );
+  }
+
+  // Fallback: gradient with first letter
+  return (
+    <div className="w-full aspect-[460/215] bg-gradient-to-br from-gray-700 to-gray-800 rounded-t-xl flex items-center justify-center">
+      <span className="text-4xl font-bold text-gray-500">{title.charAt(0).toUpperCase()}</span>
+    </div>
+  );
 }
 
 export default function Dashboard() {
@@ -27,6 +95,9 @@ export default function Dashboard() {
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+
+  const gridRef = useRef<HTMLDivElement>(null);
+  useGridNav(gridRef, 3);
 
   const refreshGames = useCallback(() => {
     getCachedGames()
@@ -46,7 +117,6 @@ export default function Dashboard() {
     const unlisteners: Array<() => void> = [];
 
     listen<{ game_id: number; game_title: string }>("save-changed", (event) => {
-      // Refresh game list so the "Changed" badge shows up
       refreshGames();
       setToast(`Save changed: ${event.payload.game_title}`);
       setTimeout(() => setToast(null), 3000);
@@ -87,7 +157,6 @@ export default function Dashboard() {
     setError(null);
     try {
       await backupAll();
-      // Refresh game list to update statuses
       const refreshed = await getCachedGames();
       setGames(refreshed);
     } catch (err) {
@@ -104,7 +173,6 @@ export default function Dashboard() {
       await backupGame(game.id);
       const refreshed = await getCachedGames();
       setGames(refreshed);
-      // Refresh backup list if this game is selected
       if (selectedGame?.id === game.id) {
         setBackups(await getBackups(game.id));
       }
@@ -129,6 +197,11 @@ export default function Dashboard() {
     setError(null);
     try {
       await restoreGame(game.id, backupId);
+      const refreshed = await getCachedGames();
+      setGames(refreshed);
+      if (selectedGame?.id === game.id) {
+        setBackups(await getBackups(game.id));
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -140,196 +213,259 @@ export default function Dashboard() {
     g.title.toLowerCase().includes(search.toLowerCase()),
   );
 
+  const gamesWithSaves = games.filter((g) => g.save_path_count > 0).length;
+
   return (
-    <div className="flex gap-6 h-full">
-      {/* Game list */}
-      <div className={selectedGame ? "w-2/3" : "w-full"}>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold">Your Games</h2>
-          <div className="flex gap-3">
-            <input
-              type="text"
-              placeholder="Search games..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
-            />
-            <button
-              onClick={handleScan}
-              disabled={scanning}
-              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            >
-              {scanning ? "Scanning..." : "Scan Games"}
-            </button>
-            <button
-              onClick={handleBackupAll}
-              disabled={backingUpAll}
-              className="bg-green-600 hover:bg-green-700 disabled:opacity-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            >
-              {backingUpAll ? "Backing Up..." : "Back Up All"}
-            </button>
-          </div>
+    <div className="h-full flex flex-col">
+      {/* Top bar: search + actions */}
+      <div className="flex-shrink-0 flex items-center gap-3 mb-4">
+        <DeckInput
+          placeholder="Search games..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+          }
+        />
+        <DeckButton onClick={handleScan} loading={scanning}>
+          {scanning ? "Scanning..." : "Scan"}
+        </DeckButton>
+        <DeckButton
+          variant="success"
+          onClick={handleBackupAll}
+          loading={backingUpAll}
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
+              <polyline points="17,21 17,13 7,13 7,21" />
+              <polyline points="7,3 7,8 15,8" />
+            </svg>
+          }
+        >
+          Back Up All
+        </DeckButton>
+      </div>
+
+      {/* Stats bar */}
+      {games.length > 0 && (
+        <div className="flex-shrink-0 flex items-center gap-4 mb-4 text-sm text-gray-400">
+          <span>{games.length} games found</span>
+          <span className="text-gray-600">|</span>
+          <span>{gamesWithSaves} with save files</span>
+          {search && (
+            <>
+              <span className="text-gray-600">|</span>
+              <span>{filteredGames.length} matching &ldquo;{search}&rdquo;</span>
+            </>
+          )}
         </div>
+      )}
 
-        {error && (
-          <div className="mb-4 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-sm">
-            <span className="font-semibold">Error:</span> {error}
-          </div>
-        )}
+      {/* Error */}
+      {error && (
+        <div className="flex-shrink-0 mb-4 p-4 bg-red-900/40 border-2 border-red-800 rounded-xl text-red-200 flex items-center gap-3 animate-fade-in">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          <span className="flex-1">{error}</span>
+          <DeckButton variant="ghost" size="sm" onClick={() => setError(null)}>Dismiss</DeckButton>
+        </div>
+      )}
 
-        {toast && (
-          <div className="mb-4 p-3 bg-blue-900/50 border border-blue-700 rounded-lg text-blue-200 text-sm animate-pulse">
-            {toast}
-          </div>
-        )}
+      {/* Toast */}
+      {toast && (
+        <div className="flex-shrink-0 mb-4 p-3 bg-blue-900/40 border-2 border-blue-800 rounded-xl text-blue-200 text-sm animate-fade-in flex items-center gap-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+            <polyline points="22,4 12,14.01 9,11.01" />
+          </svg>
+          {toast}
+        </div>
+      )}
 
-        {games.length === 0 && !error ? (
-          <div className="text-center py-20 text-gray-500">
-            <p className="text-lg mb-2">No games detected yet</p>
-            <p className="text-sm">
-              Click &quot;Scan Games&quot; to detect your installed games and
-              their save files.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredGames.map((game) => (
-              <div
-                key={game.id}
-                onClick={() => handleSelectGame(game)}
-                className={`bg-gray-800 rounded-lg p-4 border transition-colors cursor-pointer ${
-                  selectedGame?.id === game.id
-                    ? "border-blue-500"
-                    : "border-gray-700 hover:border-gray-600"
-                }`}
-              >
-                <h3 className="font-semibold text-white mb-1">{game.title}</h3>
-                {game.steam_id && (
-                  <p className="text-xs text-gray-500 mb-1">
-                    Steam ID: {game.steam_id}
-                  </p>
-                )}
-                {game.save_path_count > 0 && (
-                  <p className="text-xs text-green-400 mb-2">
-                    {game.save_path_count} save location
-                    {game.save_path_count > 1 ? "s" : ""} detected
-                  </p>
-                )}
-                <div className="flex items-center justify-between mb-2">
-                  <span
-                    className={`text-xs px-2 py-1 rounded ${
-                      game.status === "backed_up"
-                        ? "bg-green-900 text-green-300"
-                        : game.status === "changed"
-                          ? "bg-yellow-900 text-yellow-300"
-                          : "bg-gray-700 text-gray-400"
-                    }`}
-                  >
-                    {game.status === "backed_up"
-                      ? "Backed Up"
-                      : game.status === "changed"
-                        ? "Changed"
-                        : "Never Backed Up"}
-                  </span>
-                  {game.last_backup && (
-                    <span className="text-xs text-gray-500">
-                      {game.last_backup}
-                    </span>
-                  )}
+      {/* Empty state */}
+      {games.length === 0 && !error ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-in">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-gray-600 mb-4">
+            <rect x="2" y="6" width="20" height="12" rx="2" />
+            <path d="M6 12h4M8 10v4" />
+            <circle cx="15" cy="11" r="1" />
+            <circle cx="18" cy="13" r="1" />
+          </svg>
+          <p className="text-xl font-medium text-gray-400 mb-2">No games detected yet</p>
+          <p className="text-gray-500 mb-6 max-w-md">
+            DeckSave will scan your Steam library for installed games and locate their save files automatically.
+          </p>
+          <DeckButton size="lg" onClick={handleScan} loading={scanning}>
+            Scan Steam Library
+          </DeckButton>
+        </div>
+      ) : (
+        /* Game grid */
+        <div
+          ref={gridRef}
+          className="flex-1 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 content-start pb-2"
+        >
+          {filteredGames.map((game) => (
+            <DeckCard
+              key={game.id}
+              selected={selectedGame?.id === game.id}
+              onClick={() => handleSelectGame(game)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSelectGame(game);
+              }}
+              className="!p-0 overflow-hidden"
+            >
+              {/* Game art */}
+              <GameImage steamId={game.steam_id} title={game.title} />
+
+              {/* Card body */}
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <h3 className="font-semibold text-white text-base leading-tight line-clamp-1">{game.title}</h3>
+                  <DeckStatusBadge status={game.status} />
                 </div>
+
+                {game.save_path_count > 0 && (
+                  <p className="text-sm text-gray-400 mb-3">
+                    {game.save_path_count} save location{game.save_path_count > 1 ? "s" : ""}
+                    {game.last_backup && (
+                      <span className="text-gray-500"> &middot; Last: {game.last_backup}</span>
+                    )}
+                  </p>
+                )}
+
+                {/* Action buttons — 48px min height */}
                 <div className="flex gap-2">
-                  <button
+                  <DeckButton
+                    size="sm"
+                    fullWidth
                     onClick={(e) => {
                       e.stopPropagation();
                       handleBackupGame(game);
                     }}
-                    disabled={
-                      busyGameId === game.id || game.save_path_count === 0
+                    disabled={busyGameId === game.id || game.save_path_count === 0}
+                    loading={busyGameId === game.id}
+                    icon={
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
+                        <polyline points="17,21 17,13 7,13 7,21" />
+                      </svg>
                     }
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-3 py-1.5 rounded text-xs font-medium transition-colors"
                   >
-                    {busyGameId === game.id ? "..." : "Backup"}
-                  </button>
-                  <button
+                    Backup
+                  </DeckButton>
+                  <DeckButton
+                    size="sm"
+                    variant="secondary"
+                    fullWidth
                     onClick={(e) => {
                       e.stopPropagation();
                       handleRestore(game);
                     }}
-                    disabled={
-                      busyGameId === game.id || !game.last_backup
+                    disabled={busyGameId === game.id || !game.last_backup}
+                    icon={
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="1,4 1,10 7,10" />
+                        <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
+                      </svg>
                     }
-                    className="flex-1 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-3 py-1.5 rounded text-xs font-medium transition-colors"
                   >
                     Restore
-                  </button>
+                  </DeckButton>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Backup history panel */}
-      {selectedGame && (
-        <div className="w-1/3 bg-gray-800 rounded-lg border border-gray-700 p-4 h-fit max-h-[calc(100vh-8rem)] overflow-y-auto">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-white">
-              {selectedGame.title}
-            </h3>
-            <button
-              onClick={() => setSelectedGame(null)}
-              className="text-gray-400 hover:text-white text-sm"
-            >
-              Close
-            </button>
-          </div>
-
-          <div className="mb-3">
-            <p className="text-xs text-gray-400 mb-1">Save Locations</p>
-            {selectedGame.save_paths.map((p, i) => (
-              <p key={i} className="text-xs text-gray-300 truncate" title={p}>
-                {p}
-              </p>
-            ))}
-          </div>
-
-          <h4 className="text-sm font-medium text-gray-300 mb-2">
-            Backup History
-          </h4>
-          {backups.length === 0 ? (
-            <p className="text-xs text-gray-500">No backups yet</p>
-          ) : (
-            <div className="space-y-2">
-              {backups.map((b) => (
-                <div
-                  key={b.id}
-                  className="bg-gray-700 rounded p-3 text-xs"
-                >
-                  <div className="flex justify-between mb-1">
-                    <span className="text-gray-300">{b.timestamp}</span>
-                    <span className="text-gray-400">
-                      {formatBytes(b.size_bytes)}
-                    </span>
-                  </div>
-                  <p
-                    className="text-gray-500 truncate mb-2"
-                    title={b.checksum}
-                  >
-                    SHA-256: {b.checksum.slice(0, 16)}...
-                  </p>
-                  <button
-                    onClick={() => handleRestore(selectedGame, b.id)}
-                    disabled={busyGameId === selectedGame.id}
-                    className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-3 py-1 rounded text-xs font-medium transition-colors w-full"
-                  >
-                    Restore This Version
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+            </DeckCard>
+          ))}
         </div>
       )}
+
+      {/* Game detail modal */}
+      <DeckModal
+        open={!!selectedGame}
+        onClose={() => setSelectedGame(null)}
+        title={selectedGame?.title ?? ""}
+      >
+        {selectedGame && (
+          <div className="space-y-4">
+            {/* Game header image in modal */}
+            {selectedGame.steam_id && (
+              <GameImage steamId={selectedGame.steam_id} title={selectedGame.title} />
+            )}
+
+            {/* Save paths */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-300 mb-2">Save Locations</h4>
+              <div className="space-y-1">
+                {selectedGame.save_paths.map((p, i) => (
+                  <p key={i} className="text-sm text-gray-400 break-all bg-gray-900/50 px-3 py-2 rounded-lg">
+                    {p}
+                  </p>
+                ))}
+              </div>
+            </div>
+
+            {/* Quick actions */}
+            <div className="flex gap-3">
+              <DeckButton
+                fullWidth
+                onClick={() => handleBackupGame(selectedGame)}
+                disabled={busyGameId === selectedGame.id || selectedGame.save_path_count === 0}
+                loading={busyGameId === selectedGame.id}
+              >
+                Backup Now
+              </DeckButton>
+              <DeckButton
+                variant="secondary"
+                fullWidth
+                onClick={() => handleRestore(selectedGame)}
+                disabled={busyGameId === selectedGame.id || !selectedGame.last_backup}
+              >
+                Restore Latest
+              </DeckButton>
+            </div>
+
+            {/* Backup history */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-300 mb-2">
+                Backup History {backups.length > 0 && `(${backups.length})`}
+              </h4>
+              {backups.length === 0 ? (
+                <p className="text-sm text-gray-500">No backups yet</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {backups.map((b) => (
+                    <div
+                      key={b.id}
+                      className="bg-gray-900/50 rounded-xl p-3 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm text-gray-200">{b.timestamp}</p>
+                        <p className="text-xs text-gray-500">
+                          {formatBytes(b.size_bytes)} &middot; {b.checksum.slice(0, 12)}...
+                        </p>
+                      </div>
+                      <DeckButton
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleRestore(selectedGame, b.id)}
+                        disabled={busyGameId === selectedGame.id}
+                      >
+                        Restore
+                      </DeckButton>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </DeckModal>
     </div>
   );
 }
