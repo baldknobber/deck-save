@@ -27,7 +27,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
@@ -94,13 +94,16 @@ jobs:
           name: release-x86_64-unknown-linux-gnu
           path: release-artifacts/
 
-      - name: Extract binary from deb
+      - name: Extract binary from deb and copy icons
         run: |
           mkdir -p deb-extract
           dpkg-deb -x release-artifacts/*.deb deb-extract/
           find deb-extract -type f -name 'deck-save' -o -name 'DeckSave' | head -1 | xargs -I{} cp {} flatpak/deck-save
           chmod +x flatpak/deck-save
           ls -la flatpak/deck-save
+          cp src-tauri/icons/32x32.png flatpak/32x32.png
+          cp src-tauri/icons/64x64.png flatpak/64x64.png
+          cp src-tauri/icons/128x128.png flatpak/128x128.png
 
       - name: Install Flatpak tools
         run: |
