@@ -24,7 +24,7 @@ A lightweight desktop app for **backing up and syncing game save files** across 
 ┌─────────────────────────────────────────┐
 │  React + TypeScript + Tailwind (UI)     │
 ├─────────────────────────────────────────┤
-│  Tauri 2.0 (IPC bridge)                │
+│  Tauri 2.0 (IPC bridge)                 │
 ├─────────────────────────────────────────┤
 │  Rust backend                           │
 │  ├── steamlocate (Steam library scan)   │
@@ -47,15 +47,15 @@ A lightweight desktop app for **backing up and syncing game save files** across 
 Download the `.msi` or `.exe` installer from [Releases](https://github.com/baldknobber/deck-save/releases).
 
 ### Steam Deck / Linux
-Download the `.AppImage` from [Releases](https://github.com/baldknobber/deck-save/releases), then:
+One-liner install (downloads the latest release automatically):
+```bash
+curl -sL https://raw.githubusercontent.com/baldknobber/deck-save/master/scripts/deck-install.sh | bash
+```
+
+Or download the `.AppImage` manually from [Releases](https://github.com/baldknobber/deck-save/releases):
 ```bash
 chmod +x DeckSave_*.AppImage
 ./DeckSave_*.AppImage
-```
-
-Or use the included setup script for Steam Deck:
-```bash
-bash scripts/deck-test-setup.sh
 ```
 
 ## Building from Source
@@ -96,22 +96,17 @@ cargo tauri dev
 
 ## Testing on Steam Deck
 
-1. **Build the AppImage** — Push a version tag to trigger the release workflow:
+1. **Switch to Desktop Mode** on your Steam Deck
+2. **Open Konsole** and run:
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   curl -sL https://raw.githubusercontent.com/baldknobber/deck-save/master/scripts/deck-install.sh | bash
    ```
-   Or build locally on a Linux machine: `cargo tauri build`
+   This downloads the latest AppImage, installs it to `~/Applications/`, and creates a desktop shortcut.
 
-2. **Transfer to Deck** — Copy the `.AppImage` to your Steam Deck (via USB, SSH, or Syncthing)
-
-3. **Run the setup script** — In Desktop Mode, open a terminal:
+3. **Launch** — Open DeckSave from the application menu or run:
    ```bash
-   bash scripts/deck-test-setup.sh
+   ~/Applications/DeckSave.AppImage
    ```
-   This makes the AppImage executable and installs a `.desktop` shortcut.
-
-4. **Launch** — Open DeckSave from the application menu or run the AppImage directly
 
 5. **Verify**
    - Dashboard should detect your installed Steam games

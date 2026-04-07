@@ -123,7 +123,7 @@ pub fn scan_games(state: tauri::State<'_, crate::AppState>) -> Result<Vec<Game>,
                     // Filter by current OS
                     if !file_entry.when.is_empty() {
                         let os_ok = file_entry.when.iter().any(|c| {
-                            c.os.as_deref().map_or(true, |os| {
+                            c.os.as_deref().is_none_or(|os| {
                                 if cfg!(target_os = "windows") {
                                     os == "windows"
                                 } else if cfg!(target_os = "linux") {

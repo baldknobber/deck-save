@@ -223,7 +223,7 @@ impl SyncthingClient {
                 DeviceInfo {
                     device_id: d.device_id.clone(),
                     name: d.name,
-                    connected: conn.map_or(false, |c| c.connected),
+                    connected: conn.is_some_and(|c| c.connected),
                     paused: d.paused,
                 }
             })

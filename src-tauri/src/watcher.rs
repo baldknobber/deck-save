@@ -6,7 +6,7 @@
 
 use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -76,9 +76,9 @@ fn build_watch_map(state: &AppState) -> HashMap<PathBuf, (i64, String)> {
 }
 
 /// Given a changed path, find which game_id it belongs to.
-fn match_path_to_game(path: &PathBuf, watch_map: &HashMap<PathBuf, (i64, String)>) -> Option<(i64, String)> {
+fn match_path_to_game(path: &Path, watch_map: &HashMap<PathBuf, (i64, String)>) -> Option<(i64, String)> {
     // Walk up the path hierarchy to find a matching watched directory
-    let mut candidate = path.clone();
+    let mut candidate = path.to_path_buf();
     loop {
         if let Some((id, title)) = watch_map.get(&candidate) {
             return Some((*id, title.clone()));
