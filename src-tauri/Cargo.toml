@@ -19,7 +19,8 @@ tauri-plugin-shell = "2"
 tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 rusqlite = { version = "0.31", features = ["bundled"] }
-
-[target.'cfg(windows)'.dependencies]
-winreg = "0.52"
+steamlocate = "2"
+ureq = "2"
+glob = "0.3"

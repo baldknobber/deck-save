@@ -1,11 +1,15 @@
 mod commands;
 mod db;
+mod manifest;
+mod path_expander;
 mod steam;
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
+    pub app_data_dir: PathBuf,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -25,11 +29,13 @@ pub fn run() {
             let conn = db::init_db(&db_path)?;
             app.manage(AppState {
                 db: Mutex::new(conn),
+                app_data_dir: app_dir,
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::scanner::scan_games,
+            commands::scanner::get_cached_games,
             commands::backup::backup_game,
             commands::backup::backup_all,
             commands::backup::restore_game,

@@ -23,6 +23,10 @@ export async function scanGames(): Promise<Game[]> {
   return invoke<Game[]>("scan_games");
 }
 
+export async function getCachedGames(): Promise<Game[]> {
+  return invoke<Game[]>("get_cached_games");
+}
+
 export async function backupGame(gameId: number): Promise<BackupRecord> {
   return invoke<BackupRecord>("backup_game", { gameId });
 }

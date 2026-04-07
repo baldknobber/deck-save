@@ -1,11 +1,20 @@
-import { useState } from "react";
-import { scanGames, backupAll, type Game } from "../lib/api";
+import { useState, useEffect } from "react";
+import { scanGames, getCachedGames, backupAll, type Game } from "../lib/api";
 
 export default function Dashboard() {
   const [games, setGames] = useState<Game[]>([]);
   const [scanning, setScanning] = useState(false);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  // Load cached games from SQLite on mount (instant, no scanning)
+  useEffect(() => {
+    getCachedGames()
+      .then((cached) => {
+        if (cached.length > 0) setGames(cached);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleScan = async () => {
     setScanning(true);
