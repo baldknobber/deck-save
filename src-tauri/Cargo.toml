@@ -24,3 +24,9 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 steamlocate = "2"
 ureq = "2"
 glob = "0.3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+walkdir = "2"
+chrono = { version = "0.4", features = ["serde"] }
+notify = "8"
+notify-debouncer-mini = "0.6"

@@ -19,6 +19,11 @@ export interface BackupRecord {
   checksum: string;
 }
 
+export interface Setting {
+  key: string;
+  value: string;
+}
+
 export async function scanGames(): Promise<Game[]> {
   return invoke<Game[]>("scan_games");
 }
@@ -44,4 +49,15 @@ export async function restoreGame(
 
 export async function getBackups(gameId: number): Promise<BackupRecord[]> {
   return invoke<BackupRecord[]>("get_backups", { gameId });
+}
+
+export async function getSettings(): Promise<Setting[]> {
+  return invoke<Setting[]>("get_settings");
+}
+
+export async function updateSetting(
+  key: string,
+  value: string,
+): Promise<void> {
+  return invoke("update_setting", { key, value });
 }

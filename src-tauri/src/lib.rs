@@ -3,6 +3,7 @@ mod db;
 mod manifest;
 mod path_expander;
 mod steam;
+mod watcher;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -31,6 +32,13 @@ pub fn run() {
                 db: Mutex::new(conn),
                 app_data_dir: app_dir,
             });
+
+            // Start file watcher + auto-backup scheduler in background
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                watcher::start(handle);
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -39,6 +47,9 @@ pub fn run() {
             commands::backup::backup_game,
             commands::backup::backup_all,
             commands::backup::restore_game,
+            commands::backup::get_backups,
+            commands::backup::get_settings,
+            commands::backup::update_setting,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
