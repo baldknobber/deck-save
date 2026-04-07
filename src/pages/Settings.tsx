@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getSettings, updateSetting, getCachedGames } from "../lib/api";
 import { DeckButton, DeckInput, DeckToggle, DeckSelect } from "../components/deck";
+import { open } from "@tauri-apps/plugin-dialog";
 
 export default function Settings() {
   const [backupDir, setBackupDir] = useState("");
@@ -39,6 +40,11 @@ export default function Settings() {
       })
       .catch(() => {});
   }, []);
+
+  const handleBrowseBackupDir = async () => {
+    const selected = await open({ directory: true, title: "Select Backup Directory" });
+    if (selected) setBackupDir(selected);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -82,7 +88,7 @@ export default function Settings() {
             onChange={(e) => setBackupDir(e.target.value)}
             placeholder="Default: app data directory"
           />
-          <DeckButton variant="secondary" className="flex-shrink-0">
+          <DeckButton variant="secondary" className="flex-shrink-0" onClick={handleBrowseBackupDir}>
             Browse
           </DeckButton>
         </div>

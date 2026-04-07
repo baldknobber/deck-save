@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   scanGames,
   getCachedGames,
@@ -209,11 +209,15 @@ export default function Dashboard() {
     }
   };
 
-  const filteredGames = games.filter((g) =>
-    g.title.toLowerCase().includes(search.toLowerCase()),
+  const filteredGames = useMemo(
+    () => games.filter((g) => g.title.toLowerCase().includes(search.toLowerCase())),
+    [games, search],
   );
 
-  const gamesWithSaves = games.filter((g) => g.save_path_count > 0).length;
+  const gamesWithSaves = useMemo(
+    () => games.filter((g) => g.save_path_count > 0).length,
+    [games],
+  );
 
   return (
     <div className="h-full flex flex-col">

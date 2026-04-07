@@ -37,6 +37,23 @@ pub fn run() {
                 header_url_cache: Mutex::new(HashMap::new()),
             });
 
+            // ── System tray ──────────────────────────────────────────
+            setup_tray(app)?;
+
+            // ── Close-to-tray on Windows ─────────────────────────────
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(win) = app.get_webview_window("main") {
+                    let win_hide = win.clone();
+                    win.on_window_event(move |event| {
+                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                            api.prevent_close();
+                            let _ = win_hide.hide();
+                        }
+                    });
+                }
+            }
+
             // Start file watcher + auto-backup scheduler in background
             let handle = app.handle().clone();
             std::thread::spawn(move || {
@@ -68,4 +85,52 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Build the system tray icon with Show/Quit menu.
+/// On click, shows the main window. On "Quit", exits the app.
+fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::Manager;
+
+    let show_i = MenuItem::with_id(app, "show", "Show DeckSave", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "quit", "Quit DeckSave", true, None::<&str>)?;
+    let tray_menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
+
+    let tray = TrayIconBuilder::new()
+        .icon(tray_icon)
+        .tooltip("DeckSave")
+        .menu(&tray_menu)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    // Keep tray icon alive for the app lifetime
+    app.manage(tray);
+    Ok(())
 }

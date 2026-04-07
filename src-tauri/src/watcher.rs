@@ -14,6 +14,12 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::commands::backup;
 use crate::AppState;
 
+/// Send an OS notification via tauri-plugin-notification.
+fn send_notification(app: &AppHandle, title: &str, body: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
 /// Payload sent to the frontend when a save file changes.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SaveChangedEvent {
@@ -42,11 +48,13 @@ fn build_watch_map(state: &AppState) -> HashMap<PathBuf, (i64, String)> {
         Err(_) => return map,
     };
 
-    let rows: Vec<(i64, String, String)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-        .unwrap_or_else(|_| panic!("query_map failed"))
-        .filter_map(|r| r.ok())
-        .collect();
+    let rows: Vec<(i64, String, String)> = match stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))) {
+        Ok(iter) => iter.filter_map(|r| r.ok()).collect(),
+        Err(e) => {
+            eprintln!("[DeckSave] Failed to query games for watch map: {e}");
+            return map;
+        }
+    };
 
     for (id, title, json) in rows {
         let paths: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
@@ -130,21 +138,25 @@ fn run_auto_backup(state: &AppState) -> (usize, usize, Vec<String>) {
         Err(_) => return (0, 0, vec![]),
     };
 
-    let changed_games: Vec<(i64, String, Vec<String>)> = stmt
-        .query_map([], |row| {
+    let changed_games: Vec<(i64, String, Vec<String>)> = match stmt.query_map([], |row| {
             let id: i64 = row.get(0)?;
             let title: String = row.get(1)?;
             let json: String = row.get(2)?;
             Ok((id, title, json))
-        })
-        .unwrap_or_else(|_| panic!("query_map failed"))
-        .filter_map(|r| r.ok())
-        .map(|(id, title, json)| {
-            let paths: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
-            (id, title, paths)
-        })
-        .filter(|(_, _, paths)| !paths.is_empty())
-        .collect();
+        }) {
+        Ok(iter) => iter
+            .filter_map(|r| r.ok())
+            .map(|(id, title, json)| {
+                let paths: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+                (id, title, paths)
+            })
+            .filter(|(_, _, paths)| !paths.is_empty())
+            .collect(),
+        Err(e) => {
+            eprintln!("[DeckSave] Failed to query changed games: {e}");
+            return (0, 0, vec![]);
+        }
+    };
 
     drop(stmt);
 
@@ -250,8 +262,17 @@ pub fn start(app_handle: AppHandle) {
                     let _ = watcher_app.emit("auto-backup-complete", AutoBackupEvent {
                         backed_up,
                         failed,
-                        game_titles: titles,
+                        game_titles: titles.clone(),
                     });
+                    // OS notification
+                    if backed_up > 0 {
+                        let body = if backed_up == 1 {
+                            format!("Backed up \"{}\"", titles[0])
+                        } else {
+                            format!("Backed up {} games: {}", backed_up, titles.join(", "))
+                        };
+                        send_notification(&watcher_app, "DeckSave — Auto Backup", &body);
+                    }
                 }
             }
         }
@@ -279,13 +300,31 @@ pub fn start(app_handle: AppHandle) {
 
     // ── Scheduled Auto-Backup ────────────────────────────────────────────
     let scheduler_app = app_handle.clone();
+    let scheduler_map = Arc::clone(&watch_map);
 
     std::thread::spawn(move || {
         // Keep the debouncer alive for the lifetime of the app
-        let _debouncer = debouncer;
+        let mut debouncer = debouncer;
 
         loop {
             let state = scheduler_app.state::<AppState>();
+
+            // Rebuild watch map so newly scanned games get watched
+            {
+                let new_map = build_watch_map(&state);
+                let mut old = scheduler_map.lock().unwrap_or_else(|e| e.into_inner());
+                for dir in new_map.keys() {
+                    if !old.contains_key(dir) {
+                        if let Err(e) = debouncer.watcher().watch(dir, notify::RecursiveMode::Recursive) {
+                            eprintln!("[DeckSave] Failed to watch new dir {}: {e}", dir.display());
+                        } else {
+                            eprintln!("[DeckSave] Now watching: {}", dir.display());
+                        }
+                    }
+                }
+                *old = new_map;
+            }
+
             let interval = get_scheduler_interval(&state);
 
             match interval {
@@ -303,9 +342,18 @@ pub fn start(app_handle: AppHandle) {
                             AutoBackupEvent {
                                 backed_up,
                                 failed,
-                                game_titles: titles,
+                                game_titles: titles.clone(),
                             },
                         );
+                        // OS notification
+                        if backed_up > 0 {
+                            let body = if backed_up == 1 {
+                                format!("Backed up \"{}\"", titles[0])
+                            } else {
+                                format!("Backed up {} games", backed_up)
+                            };
+                            send_notification(&scheduler_app, "DeckSave — Auto Backup", &body);
+                        }
                     }
                 }
                 None => {

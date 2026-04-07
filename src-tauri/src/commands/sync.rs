@@ -57,8 +57,11 @@ fn get_client(state: &AppState) -> Result<SyncthingClient, String> {
 
     let api_key = match stored_key {
         Some(k) => k,
-        None => syncthing::detect_api_key()
-            .ok_or_else(|| "Syncthing API key not found. Is Syncthing installed?".to_string())?,
+        None => syncthing::detect_api_key().ok_or_else(|| {
+            "Syncthing API key not found. Install Syncthing and make sure it has run at least once, \
+             or enter the API key manually in Sync settings."
+                .to_string()
+        })?,
     };
 
     let base_url: Option<String> = conn

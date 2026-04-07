@@ -85,8 +85,13 @@ pub(crate) fn create_backup_zip(
 
     let zip_name = format!("{safe_title}_{ts}.zip");
     let zip_path = game_dir.join(&zip_name);
-    let file =
-        fs::File::create(&zip_path).map_err(|e| format!("Cannot create zip file: {e}"))?;
+    let file = fs::File::create(&zip_path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            format!("Permission denied creating backup for \"{title}\". Check that the backup directory is writable.")
+        } else {
+            format!("Cannot create backup file for \"{title}\": {e}")
+        }
+    })?;
     let mut zip_writer = zip::ZipWriter::new(file);
     let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
@@ -496,8 +501,18 @@ pub fn restore_game(
 
         let out_path = target_dir.join(&rel_name);
 
-        // Validate: don't allow path traversal outside target
-        if !out_path.starts_with(target_dir) {
+        // Block path traversal: reject entries with ".." components or that resolve outside target.
+        // First check the raw relative name for suspicious components.
+        if rel_name.contains("..") {
+            eprintln!("[DeckSave] Skipping zip entry with path traversal: {entry_name}");
+            continue;
+        }
+
+        // Then verify the joined path stays within the target directory.
+        // Use canonicalize on the parent to resolve symlinks where possible.
+        let canon_target = fs::canonicalize(target_dir).unwrap_or_else(|_| target_dir.clone());
+        if !out_path.starts_with(target_dir) && !out_path.starts_with(&canon_target) {
+            eprintln!("[DeckSave] Skipping zip entry escaping target dir: {entry_name}");
             continue;
         }
 
