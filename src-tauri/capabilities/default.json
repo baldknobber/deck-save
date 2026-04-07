@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for DeckSave",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "fs:default",
+    "dialog:default",
+    "notification:default",
+    "shell:default",
+    "store:default"
+  ]
+}
