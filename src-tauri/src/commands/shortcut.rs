@@ -3,7 +3,7 @@ use serde::Serialize;
 use steam_shortcuts_util::{
     calculate_app_id_for_shortcut, parse_shortcuts, shortcuts_to_bytes, Shortcut,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const APP_NAME: &str = "DeckSave";
 
@@ -208,7 +208,7 @@ pub fn check_steam_shortcut() -> Result<bool, String> {
 /// Copy the app icon into the Steam grid folder so the shortcut has artwork
 /// in Gaming Mode. Uses `calculate_app_id_for_shortcut` from steam_shortcuts_util
 /// to derive the correct filename.
-fn copy_grid_artwork(vdf_path: &PathBuf, shortcut: &Shortcut<'_>, icon_source: &str) {
+fn copy_grid_artwork(vdf_path: &Path, shortcut: &Shortcut<'_>, icon_source: &str) {
     // Grid folder is sibling to shortcuts.vdf: userdata/<id>/config/grid/
     let grid_dir = match vdf_path.parent() {
         Some(config) => config.join("grid"),

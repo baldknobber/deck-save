@@ -708,11 +708,8 @@ fn do_restore(
 
     emit("safety_backup", &format!("Creating safety backup of current \"{title}\" saves..."));
     let root = backup_root(&conn, &state.app_data_dir)?;
-    match create_backup_zip(game_id, &title, &save_paths, &root) {
-        Ok((pre_zip, pre_size, pre_hash)) => {
-            record_backup(&conn, game_id, &pre_zip, pre_size, &pre_hash).ok();
-        }
-        Err(_) => {}
+    if let Ok((pre_zip, pre_size, pre_hash)) = create_backup_zip(game_id, &title, &save_paths, &root) {
+        record_backup(&conn, game_id, &pre_zip, pre_size, &pre_hash).ok();
     }
 
     emit("extracting", &format!("Extracting save files for \"{title}\"..."));

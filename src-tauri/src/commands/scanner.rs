@@ -261,10 +261,8 @@ pub fn scan_games(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState
         let rows = stmt
             .query_map([], |row| row.get::<_, String>(0))
             .map_err(|e| format!("DB query error: {e}"))?;
-        for row in rows {
-            if let Ok(t) = row {
-                known_titles.insert(t);
-            }
+        for t in rows.flatten() {
+            known_titles.insert(t);
         }
     }
 

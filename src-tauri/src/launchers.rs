@@ -26,7 +26,8 @@ pub struct DetectedGame {
 pub fn detect_all() -> Vec<DetectedGame> {
     let mut games: Vec<DetectedGame> = Vec::new();
 
-    let detectors: Vec<(&str, fn() -> Vec<DetectedGame>)> = vec![
+    type Detector = (&'static str, fn() -> Vec<DetectedGame>);
+    let detectors: Vec<Detector> = vec![
         ("Heroic", detect_heroic),
         ("Lutris", detect_lutris),
         ("Bottles", detect_bottles),
@@ -213,7 +214,7 @@ fn detect_heroic() -> Vec<DetectedGame> {
                             if let Some(home) = home_dir() {
                                 let prefix_dirs = [
                                     home.join(format!("Games/Heroic/Prefixes/{app_name}")),
-                                    home.join(format!("Games/Heroic/Prefixes/default")),
+                                    home.join("Games/Heroic/Prefixes/default"),
                                 ];
                                 for pfx in &prefix_dirs {
                                     if pfx.exists() {
@@ -368,7 +369,8 @@ fn detect_lutris() -> Vec<DetectedGame> {
         }
     };
 
-    let rows: Vec<(String, String, String, Option<String>, Option<String>)> = stmt
+    type LutrisRow = (String, String, String, Option<String>, Option<String>);
+    let rows: Vec<LutrisRow> = stmt
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -556,7 +558,7 @@ fn detect_bottles() -> Vec<DetectedGame> {
 fn detect_ea() -> Vec<DetectedGame> {
     #[cfg(target_os = "windows")]
     {
-        return Vec::new(); // Handled by detect_ea_windows
+        Vec::new() // Handled by detect_ea_windows
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -681,7 +683,7 @@ fn parse_ea_installer_xml(game_dir: &Path) -> Option<String> {
 fn detect_ubisoft() -> Vec<DetectedGame> {
     #[cfg(target_os = "windows")]
     {
-        return Vec::new(); // Handled by detect_ubisoft_windows
+        Vec::new() // Handled by detect_ubisoft_windows
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -772,7 +774,7 @@ fn detect_ubisoft() -> Vec<DetectedGame> {
 fn detect_rockstar() -> Vec<DetectedGame> {
     #[cfg(target_os = "windows")]
     {
-        return Vec::new();
+        Vec::new()
     }
 
     #[cfg(not(target_os = "windows"))]
