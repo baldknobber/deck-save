@@ -36,6 +36,7 @@ jobs:
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            libudev-dev \
             patchelf
 
       - name: Install frontend dependencies
@@ -115,6 +116,7 @@ jobs:
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            libudev-dev \
             patchelf
 
       - name: Install frontend dependencies
