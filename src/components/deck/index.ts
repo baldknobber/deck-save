@@ -7,3 +7,4 @@ export { default as DeckSelect } from "./DeckSelect";
 export { default as DeckStatusBadge } from "./DeckStatusBadge";
 export { default as DeckStepper } from "./DeckStepper";
 export { default as DeckToggle } from "./DeckToggle";
+export { default as DeckProgressBar } from "./DeckProgressBar";

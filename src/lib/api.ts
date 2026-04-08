@@ -9,6 +9,7 @@ export interface Game {
   last_backup: string | null;
   status: string;
   custom_save_paths: string[];
+  launcher: string;
 }
 
 export interface BackupRecord {
@@ -205,4 +206,25 @@ export async function startSyncthing(): Promise<void> {
 
 export async function stopSyncthing(): Promise<void> {
   return invoke("stop_syncthing");
+}
+
+// ── Restore All ──────────────────────────────────────────────────
+
+export interface RestoreAllResult {
+  restored: number;
+  failed: number;
+  errors: string[];
+}
+
+export async function restoreAll(): Promise<RestoreAllResult> {
+  return invoke<RestoreAllResult>("restore_all");
+}
+
+// ── Custom Game ──────────────────────────────────────────────────
+
+export async function addCustomGame(
+  title: string,
+  savePath: string,
+): Promise<Game> {
+  return invoke<Game>("add_custom_game", { title, savePath });
 }

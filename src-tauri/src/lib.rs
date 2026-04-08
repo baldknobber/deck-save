@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod gamepad;
+pub mod launchers;
 mod manifest;
 mod path_expander;
 mod steam;
@@ -94,9 +95,11 @@ pub fn run() {
             commands::scanner::get_steam_header_url,
             commands::scanner::add_custom_save_path,
             commands::scanner::remove_custom_save_path,
+            commands::scanner::add_custom_game,
             commands::backup::backup_game,
             commands::backup::backup_all,
             commands::backup::restore_game,
+            commands::backup::restore_all,
             commands::backup::get_backups,
             commands::backup::get_settings,
             commands::backup::update_setting,

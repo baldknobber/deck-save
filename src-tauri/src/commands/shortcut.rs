@@ -1,6 +1,8 @@
 use crate::steam;
 use serde::Serialize;
-use steam_shortcuts_util::{parse_shortcuts, shortcuts_to_bytes, Shortcut};
+use steam_shortcuts_util::{
+    calculate_app_id_for_shortcut, parse_shortcuts, shortcuts_to_bytes, Shortcut,
+};
 use std::path::PathBuf;
 
 const APP_NAME: &str = "DeckSave";
@@ -28,6 +30,10 @@ fn find_shortcut_files() -> Result<Vec<PathBuf>, String> {
 
     for entry in entries.flatten() {
         if entry.path().is_dir() {
+            // Skip userdata/0 — it's a placeholder, not a real user profile
+            if entry.file_name() == "0" {
+                continue;
+            }
             let vdf = entry.path().join("config").join("shortcuts.vdf");
             // Include even if file doesn't exist yet — we'll create it
             files.push(vdf);
@@ -41,31 +47,48 @@ fn find_shortcut_files() -> Result<Vec<PathBuf>, String> {
 }
 
 /// Build the exe string and launch_options for the current platform.
+/// Steam expects exe and start_dir to be wrapped in double quotes.
 fn shortcut_exe_info() -> (String, String, String) {
     #[cfg(target_os = "linux")]
     {
-        let exe = "/usr/bin/flatpak".to_string();
-        let launch_options = "run com.baldknobber.decksave".to_string();
-        let start_dir = String::new();
-        (exe, start_dir, launch_options)
+        let in_flatpak = std::path::Path::new("/.flatpak-info").exists();
+        if in_flatpak {
+            let exe = "\"/usr/bin/flatpak\"".to_string();
+            let launch_options = "run com.baldknobber.decksave".to_string();
+            let start_dir = String::new();
+            (exe, start_dir, launch_options)
+        } else {
+            let raw = std::env::current_exe()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let exe = format!("\"{raw}\"");
+            let start_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| format!("\"{}\"", d.to_string_lossy())))
+                .unwrap_or_default();
+            let launch_options = String::new();
+            (exe, start_dir, launch_options)
+        }
     }
     #[cfg(target_os = "windows")]
     {
-        let exe = std::env::current_exe()
+        let raw = std::env::current_exe()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
+        let exe = format!("\"{raw}\"");
         let start_dir = std::env::current_exe()
             .ok()
-            .and_then(|p| p.parent().map(|d| d.to_string_lossy().to_string()))
+            .and_then(|p| p.parent().map(|d| format!("\"{}\"", d.to_string_lossy())))
             .unwrap_or_default();
         let launch_options = String::new();
         (exe, start_dir, launch_options)
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
-        let exe = std::env::current_exe()
+        let raw = std::env::current_exe()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
+        let exe = format!("\"{raw}\"");
         let start_dir = String::new();
         let launch_options = String::new();
         (exe, start_dir, launch_options)
@@ -81,8 +104,10 @@ fn is_decksave_shortcut(s: &Shortcut<'_>) -> bool {
     if s.launch_options.contains("com.baldknobber.decksave") {
         return true;
     }
-    // On Windows: exe path ends with deck-save.exe (case-insensitive)
-    if s.exe.to_lowercase().ends_with("deck-save.exe") {
+    // Check exe filename — strip surrounding quotes that Steam includes
+    let exe = s.exe.trim_matches('"');
+    let exe_lower = exe.to_lowercase();
+    if exe_lower.ends_with("deck-save.exe") || exe_lower.ends_with("deck-save") {
         return true;
     }
     false
@@ -180,6 +205,32 @@ pub fn check_steam_shortcut() -> Result<bool, String> {
     Ok(false)
 }
 
+/// Copy the app icon into the Steam grid folder so the shortcut has artwork
+/// in Gaming Mode. Uses `calculate_app_id_for_shortcut` from steam_shortcuts_util
+/// to derive the correct filename.
+fn copy_grid_artwork(vdf_path: &PathBuf, shortcut: &Shortcut<'_>, icon_source: &str) {
+    // Grid folder is sibling to shortcuts.vdf: userdata/<id>/config/grid/
+    let grid_dir = match vdf_path.parent() {
+        Some(config) => config.join("grid"),
+        None => return,
+    };
+    let _ = std::fs::create_dir_all(&grid_dir);
+
+    let app_id = calculate_app_id_for_shortcut(shortcut);
+
+    // If the icon source is a PNG, copy it as the grid image
+    if !icon_source.is_empty() && PathBuf::from(icon_source).exists() {
+        let grid_file = grid_dir.join(format!("{app_id}.png"));
+        if !grid_file.exists() {
+            let _ = std::fs::copy(icon_source, &grid_file);
+        }
+        let logo_file = grid_dir.join(format!("{app_id}_logo.png"));
+        if !logo_file.exists() {
+            let _ = std::fs::copy(icon_source, &logo_file);
+        }
+    }
+}
+
 #[tauri::command]
 pub fn register_steam_shortcut() -> Result<ShortcutResult, String> {
     let vdf_files = find_shortcut_files()?;
@@ -209,17 +260,18 @@ pub fn register_steam_shortcut() -> Result<ShortcutResult, String> {
                 .map_err(|e| format!("Cannot parse {}: {e}", vdf_path.display()))?
         };
 
-        // Check if already present
-        if shortcuts.iter().any(is_decksave_shortcut) {
+        // Remove any existing DeckSave entries so we always write a fresh, correct one
+        let had_existing = shortcuts.iter().any(is_decksave_shortcut);
+        if had_existing {
             any_existed = true;
-            continue;
         }
+        shortcuts.retain(|s| !is_decksave_shortcut(s));
 
         // Determine next order index
         let order_str = shortcuts.len().to_string();
 
         let icon = find_icon_path();
-        let new_shortcut = Shortcut::new(
+        let mut new_shortcut = Shortcut::new(
             &order_str,
             APP_NAME,
             &exe,
@@ -228,6 +280,9 @@ pub fn register_steam_shortcut() -> Result<ShortcutResult, String> {
             "",            // shortcut_path
             &launch_options,
         );
+        new_shortcut.tags = vec!["DeckSave"];
+
+        copy_grid_artwork(vdf_path, &new_shortcut, &icon);
 
         shortcuts.push(new_shortcut);
 

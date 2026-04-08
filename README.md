@@ -10,13 +10,19 @@ A lightweight desktop app for **backing up and syncing game save files** across 
 ## Features
 
 - **Automatic Steam detection** — Scans your Steam library and locates save files for 52,000+ games using the [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest)
+- **Non-Steam game detection** — Auto-detects games from Heroic (Epic/GOG/Amazon), Lutris, Bottles, EA App, Ubisoft Connect, Rockstar Launcher, and more
+- **Add custom games** — Manually add any game with a title and save folder path
 - **One-click backup & restore** — Versioned zip backups with SHA-256 integrity verification
+- **Restore with confirmation** — Safety backup of current saves before restoring, with a confirmation dialog showing backup details
+- **Bulk operations** — Back Up All and Restore All with per-game progress bars
 - **File watcher** — Detects save file changes in real time and triggers auto-backup (on-change, hourly, or daily)
 - **Syncthing sync** — Peer-to-peer save sync between devices via [Syncthing](https://syncthing.net/) (no accounts, no cloud)
 - **Syncthing auto-install** — DeckSave downloads and manages Syncthing for you — no separate setup needed
 - **Gamepad controls** — Native Gamepad API support for Steam Deck (D-pad, A/B buttons, analog stick, shoulder buttons)
-- **Auto-registers in Steam** — Adds itself as a non-Steam game so it appears in Gaming Mode
+- **Auto-registers in Steam** — Adds itself as a non-Steam game so it appears in Gaming Mode, with grid artwork
 - **First-run wizard** — Guided setup: gamepad check, Steam registration, Syncthing install
+- **Dashboard health summary** — At-a-glance view of backup status: games found, recently backed up, and games needing attention
+- **Launcher badges** — Color-coded labels on each game card showing where it was detected (Steam, Heroic, EA, Ubisoft, etc.)
 - **Steam Deck optimized** — Gamepad-first UI with 48px+ touch targets and 1280×800 layout
 - **System tray** — Minimizes to tray on Windows; runs quietly in the background
 - **Desktop notifications** — OS-native notifications when auto-backups complete
@@ -49,6 +55,7 @@ Button hints appear automatically at the bottom of the screen when a gamepad is 
 │  Rust backend                           │
 │  ├── steamlocate (Steam library scan)   │
 │  ├── Ludusavi manifest (save path DB)   │
+│  ├── Launcher detection (non-Steam)     │
 │  ├── Backup engine (zip + SHA-256)      │
 │  ├── File watcher (notify crate)        │
 │  ├── Syncthing REST API + auto-install  │
@@ -57,10 +64,39 @@ Button hints appear automatically at the bottom of the screen when a gamepad is 
 └─────────────────────────────────────────┘
 ```
 
-1. **Scan** — Detects installed Steam games and resolves their save file locations using Ludusavi's community-maintained manifest
+1. **Scan** — Detects installed Steam games and resolves their save file locations using Ludusavi's community-maintained manifest, then auto-detects games from non-Steam launchers
 2. **Backup** — Creates timestamped, compressed, checksummed zip archives with configurable retention
 3. **Watch** — Monitors save directories for changes and auto-backs up based on your schedule
 4. **Sync** — Shares backups between devices via Syncthing's peer-to-peer protocol
+
+## Non-Steam Launcher Support
+
+DeckSave automatically detects games from these launchers:
+
+| Launcher | Platform | Detection Method |
+|----------|----------|-----------------|
+| **Steam** | Linux, Windows | `steamlocate` + Ludusavi manifest |
+| **Heroic** (Epic/GOG/Amazon) | Linux | `installed.json` config files |
+| **Lutris** | Linux | SQLite database (`pga.db`) |
+| **Bottles** | Linux | `bottle.yml` + `library.yml` |
+| **EA App / Origin** | Linux, Windows | Proton prefix scan, filesystem |
+| **Ubisoft Connect** | Linux, Windows | Proton prefix scan, registry parsing |
+| **Rockstar Launcher** | Linux, Windows | Proton prefix scan, registry parsing |
+| **Epic Games Store** | Windows | `LauncherInstalled.dat` JSON |
+| **GOG Galaxy** | Windows | Galaxy SQLite database |
+
+Games from all detected launchers appear in the same Dashboard grid, with color-coded badges indicating the source. You can also manually add any game via the **Add Game** button.
+
+## First-Time Setup
+
+1. **Install DeckSave** using one of the methods below
+2. **Launch the app** — the first-run wizard will guide you through:
+   - Gamepad detection (if on Steam Deck)
+   - Registering DeckSave as a non-Steam game (so it appears in Gaming Mode)
+   - Installing Syncthing for cross-device sync (optional)
+3. **Click Scan** — DeckSave detects your Steam library and any non-Steam launchers automatically
+4. **Click Back Up All** — creates versioned backups of all detected save files
+5. **Enable file watching** in Settings to auto-backup when saves change
 
 ## Installation
 
@@ -126,8 +162,11 @@ cargo tauri dev
 - [x] **Steam shortcut registration** — Auto-add to Steam for Gaming Mode
 - [x] **Syncthing auto-install** — Download and manage Syncthing automatically
 - [x] **First-run wizard** — Guided setup on first launch
+- [x] **Non-Steam game support** — Auto-detection for Heroic, Lutris, Bottles, EA, Ubisoft, Rockstar, Epic, GOG + manual add
+- [x] **Restore confirmation** — Safety backup before restore, confirmation dialog with backup details
+- [x] **Bulk operations** — Back Up All / Restore All with progress bars
+- [x] **Dashboard health summary** — At-a-glance backup status with launcher badges
 - [ ] **Auto-updater** — In-app update checks via Tauri's updater plugin
-- [ ] **Non-Steam game support** — Manual path entry for GOG, Epic, emulators, etc.
 - [ ] **Cloud backup option** — Optional upload to a cloud provider as a secondary backup target
 - [ ] **Per-game sync rules** — Choose which games sync and which stay local
 - [ ] **UI themes** — Light mode, OLED-optimized dark theme

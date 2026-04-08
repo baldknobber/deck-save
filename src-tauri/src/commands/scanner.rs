@@ -2,7 +2,9 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::PathBuf;
+use tauri::Emitter;
 
+use crate::launchers;
 use crate::manifest;
 use crate::path_expander::{self, ExpansionContext};
 use crate::steam;
@@ -17,6 +19,7 @@ pub struct Game {
     pub last_backup: Option<String>,
     pub status: String,
     pub custom_save_paths: Vec<String>,
+    pub launcher: String,
 }
 
 #[tauri::command]
@@ -79,7 +82,7 @@ pub fn get_steam_header_url(
 }
 
 #[tauri::command]
-pub fn scan_games(state: tauri::State<'_, crate::AppState>) -> Result<Vec<Game>, String> {
+pub fn scan_games(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>) -> Result<Vec<Game>, String> {
     let conn = state.db.lock().map_err(|e| format!("DB lock error: {e}"))?;
 
     // Locate Steam
@@ -234,19 +237,99 @@ pub fn scan_games(state: tauri::State<'_, crate::AppState>) -> Result<Vec<Game>,
         if let Some(id) = existing_id {
             conn.execute(
                 "UPDATE games SET title = ?1, install_dir = ?2, save_paths = ?3, \
-                 updated_at = datetime('now') WHERE id = ?4",
+                 launcher = 'steam', updated_at = datetime('now') WHERE id = ?4",
                 rusqlite::params![game.name, game.install_dir, paths_json, id],
             )
             .map_err(|e| format!("DB update error: {e}"))?;
         } else {
             conn.execute(
-                "INSERT INTO games (title, steam_id, install_dir, save_paths) \
-                 VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO games (title, steam_id, install_dir, save_paths, launcher) \
+                 VALUES (?1, ?2, ?3, ?4, 'steam')",
                 rusqlite::params![game.name, app_id_str, game.install_dir, paths_json],
             )
             .map_err(|e| format!("DB insert error: {e}"))?;
         }
     }
+
+    // ── Non-Steam launcher detection ─────────────────────────────────────
+    let non_steam_games = launchers::detect_all();
+    let mut known_titles: HashSet<String> = HashSet::new();
+    {
+        let mut stmt = conn
+            .prepare("SELECT LOWER(title) FROM games")
+            .map_err(|e| format!("DB query error: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("DB query error: {e}"))?;
+        for row in rows {
+            if let Ok(t) = row {
+                known_titles.insert(t);
+            }
+        }
+    }
+
+    let mut launcher_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+    for detected in non_steam_games {
+        let title_lower = detected.title.to_lowercase();
+        if known_titles.contains(&title_lower) {
+            // Game already exists (from Steam) — merge save paths
+            if !detected.save_paths.is_empty() {
+                if let Ok((existing_id,)) = conn.query_row(
+                    "SELECT id FROM games WHERE LOWER(title) = ?1",
+                    rusqlite::params![title_lower],
+                    |row| Ok((row.get::<_, i64>(0)?,)),
+                ) {
+                    let current_json: String = conn
+                        .query_row(
+                            "SELECT save_paths FROM games WHERE id = ?1",
+                            rusqlite::params![existing_id],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or_else(|_| "[]".to_string());
+                    let mut current_paths: Vec<String> =
+                        serde_json::from_str(&current_json).unwrap_or_default();
+                    for sp in &detected.save_paths {
+                        if !current_paths.contains(sp) {
+                            current_paths.push(sp.clone());
+                        }
+                    }
+                    let merged_json =
+                        serde_json::to_string(&current_paths).unwrap_or_else(|_| "[]".to_string());
+                    conn.execute(
+                        "UPDATE games SET save_paths = ?1, updated_at = datetime('now') WHERE id = ?2",
+                        rusqlite::params![merged_json, existing_id],
+                    )
+                    .ok();
+                }
+            }
+            continue;
+        }
+
+        known_titles.insert(title_lower);
+        *launcher_counts.entry(detected.launcher.clone()).or_insert(0) += 1;
+
+        let paths_json = serde_json::to_string(&detected.save_paths)
+            .unwrap_or_else(|_| "[]".to_string());
+
+        conn.execute(
+            "INSERT INTO games (title, steam_id, install_dir, save_paths, launcher) \
+             VALUES (?1, NULL, ?2, ?3, ?4)",
+            rusqlite::params![
+                detected.title,
+                detected.install_dir,
+                paths_json,
+                detected.launcher
+            ],
+        )
+        .map_err(|e| format!("DB insert non-Steam game error: {e}"))?;
+    }
+
+    // Emit scan summary event with Steam count and per-launcher breakdown
+    let _ = app.emit("scan-summary", serde_json::json!({
+        "steam_count": installed.len(),
+        "launcher_counts": launcher_counts,
+    }));
 
     load_games_from_db(&conn)
 }
@@ -262,7 +345,7 @@ fn load_games_from_db(conn: &rusqlite::Connection) -> Result<Vec<Game>, String> 
         .prepare(
             "SELECT g.id, g.title, g.steam_id, g.save_paths, g.status, \
              (SELECT MAX(b.timestamp) FROM backups b WHERE b.game_id = g.id), \
-             g.custom_save_paths \
+             g.custom_save_paths, g.launcher \
              FROM games g ORDER BY g.title COLLATE NOCASE",
         )
         .map_err(|e| format!("DB query error: {e}"))?;
@@ -291,6 +374,7 @@ fn load_games_from_db(conn: &rusqlite::Connection) -> Result<Vec<Game>, String> 
                 last_backup: row.get(5)?,
                 status: row.get(4)?,
                 custom_save_paths,
+                launcher: row.get::<_, String>(7).unwrap_or_else(|_| "steam".to_string()),
             })
         })
         .map_err(|e| format!("DB query error: {e}"))?
@@ -329,6 +413,38 @@ pub fn add_custom_save_path(
     .map_err(|e| format!("DB update error: {e}"))?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn add_custom_game(
+    title: String,
+    save_path: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<Game, String> {
+    let conn = state.db.lock().map_err(|e| format!("DB lock error: {e}"))?;
+
+    let paths_json = serde_json::to_string(&vec![&save_path]).unwrap_or_else(|_| "[]".to_string());
+
+    conn.execute(
+        "INSERT INTO games (title, steam_id, install_dir, save_paths, launcher) \
+         VALUES (?1, NULL, NULL, ?2, 'custom')",
+        rusqlite::params![title, paths_json],
+    )
+    .map_err(|e| format!("DB insert error: {e}"))?;
+
+    let id = conn.last_insert_rowid();
+
+    Ok(Game {
+        id,
+        title,
+        steam_id: None,
+        save_paths: vec![save_path],
+        save_path_count: 1,
+        last_backup: None,
+        status: "never_backed_up".to_string(),
+        custom_save_paths: Vec::new(),
+        launcher: "custom".to_string(),
+    })
 }
 
 #[tauri::command]

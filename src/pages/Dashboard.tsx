@@ -5,22 +5,61 @@ import {
   backupAll,
   backupGame,
   restoreGame,
+  restoreAll,
   getBackups,
   getSteamHeaderUrl,
   addCustomSavePath,
   removeCustomSavePath,
+  addCustomGame,
   type Game,
   type BackupRecord,
 } from "../lib/api";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { DeckButton, DeckCard, DeckInput, DeckModal, DeckStatusBadge } from "../components/deck";
+import { DeckButton, DeckCard, DeckInput, DeckModal, DeckStatusBadge, DeckProgressBar } from "../components/deck";
 import { useGridNav } from "../hooks/useGridNav";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function relativeTime(timestamp: string): string {
+  const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return timestamp;
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return timestamp;
+}
+
+const LAUNCHER_COLORS: Record<string, string> = {
+  steam: "bg-blue-900/60 text-blue-300",
+  heroic: "bg-purple-900/60 text-purple-300",
+  lutris: "bg-orange-900/60 text-orange-300",
+  bottles: "bg-teal-900/60 text-teal-300",
+  ea: "bg-red-900/60 text-red-300",
+  ubisoft: "bg-indigo-900/60 text-indigo-300",
+  rockstar: "bg-yellow-900/60 text-yellow-300",
+  epic: "bg-gray-800/60 text-gray-300",
+  gog: "bg-violet-900/60 text-violet-300",
+  custom: "bg-green-900/60 text-green-300",
+};
+
+function LauncherBadge({ launcher }: { launcher: string }) {
+  if (launcher === "steam") return null;
+  const colors = LAUNCHER_COLORS[launcher] ?? "bg-gray-800/60 text-gray-300";
+  return (
+    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${colors} uppercase`}>
+      {launcher}
+    </span>
+  );
 }
 
 function steamImageUrls(steamId: string | null): string[] {
@@ -98,6 +137,12 @@ export default function Dashboard() {
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [restoringAll, setRestoringAll] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number; label: string } | null>(null);
+  const [confirmRestore, setConfirmRestore] = useState<{ game: Game; backupId?: number; backup?: BackupRecord } | null>(null);
+  const [addGameOpen, setAddGameOpen] = useState(false);
+  const [newGameTitle, setNewGameTitle] = useState("");
+  const [newGamePath, setNewGamePath] = useState("");
 
   const pageRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -138,6 +183,37 @@ export default function Dashboard() {
       },
     ).then((fn) => unlisteners.push(fn));
 
+    listen<{ game_id: number; stage: string; detail: string; current?: number; total?: number }>(
+      "restore-progress",
+      (event) => {
+        const { detail, current, total } = event.payload;
+        if (current != null && total != null) {
+          setBulkProgress({ current, total, label: detail });
+        }
+      },
+    ).then((fn) => unlisteners.push(fn));
+
+    listen<{ game_id: number; current: number; total: number; detail: string }>(
+      "backup-progress",
+      (event) => {
+        const { detail, current, total } = event.payload;
+        setBulkProgress({ current, total, label: detail });
+      },
+    ).then((fn) => unlisteners.push(fn));
+
+    listen<{ steam_count: number; launcher_counts: Record<string, number> }>(
+      "scan-summary",
+      (event) => {
+        const { steam_count, launcher_counts } = event.payload;
+        const parts: string[] = [`${steam_count} Steam`];
+        for (const [launcher, count] of Object.entries(launcher_counts)) {
+          parts.push(`${count} ${launcher.charAt(0).toUpperCase() + launcher.slice(1)}`);
+        }
+        setToast(`Scan complete: ${parts.join(", ")}`);
+        setTimeout(() => setToast(null), 5000);
+      },
+    ).then((fn) => unlisteners.push(fn));
+
     return () => {
       unlisteners.forEach((fn) => fn());
     };
@@ -158,6 +234,7 @@ export default function Dashboard() {
 
   const handleBackupAll = async () => {
     setBackingUpAll(true);
+    setBulkProgress({ current: 0, total: 0, label: "Starting backup..." });
     setError(null);
     try {
       await backupAll();
@@ -167,6 +244,7 @@ export default function Dashboard() {
       setError(String(err));
     } finally {
       setBackingUpAll(false);
+      setBulkProgress(null);
     }
   };
 
@@ -196,7 +274,14 @@ export default function Dashboard() {
     }
   };
 
-  const handleRestore = async (game: Game, backupId?: number) => {
+  const handleRestore = (game: Game, backupId?: number, backup?: BackupRecord) => {
+    setConfirmRestore({ game, backupId, backup });
+  };
+
+  const handleConfirmRestore = async () => {
+    if (!confirmRestore) return;
+    const { game, backupId } = confirmRestore;
+    setConfirmRestore(null);
     setBusyGameId(game.id);
     setError(null);
     try {
@@ -206,10 +291,47 @@ export default function Dashboard() {
       if (selectedGame?.id === game.id) {
         setBackups(await getBackups(game.id));
       }
+      setToast(`Restored ${game.title}`);
+      setTimeout(() => setToast(null), 3000);
     } catch (err) {
       setError(String(err));
     } finally {
       setBusyGameId(null);
+    }
+  };
+
+  const handleRestoreAll = async () => {
+    setRestoringAll(true);
+    setBulkProgress({ current: 0, total: 0, label: "Starting restore..." });
+    setError(null);
+    try {
+      const result = await restoreAll();
+      const refreshed = await getCachedGames();
+      setGames(refreshed);
+      setToast(`Restored ${result.restored} game${result.restored !== 1 ? "s" : ""}${result.failed > 0 ? `, ${result.failed} failed` : ""}`);
+      setTimeout(() => setToast(null), 4000);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setRestoringAll(false);
+      setBulkProgress(null);
+    }
+  };
+
+  const handleAddGame = async () => {
+    if (!newGameTitle.trim() || !newGamePath.trim()) return;
+    setError(null);
+    try {
+      await addCustomGame(newGameTitle.trim(), newGamePath.trim());
+      const refreshed = await getCachedGames();
+      setGames(refreshed);
+      setAddGameOpen(false);
+      setNewGameTitle("");
+      setNewGamePath("");
+      setToast(`Added ${newGameTitle.trim()}`);
+      setTimeout(() => setToast(null), 3000);
+    } catch (err) {
+      setError(String(err));
     }
   };
 
@@ -220,6 +342,20 @@ export default function Dashboard() {
 
   const gamesWithSaves = useMemo(
     () => games.filter((g) => g.save_path_count > 0).length,
+    [games],
+  );
+
+  const backedUpRecently = useMemo(
+    () => games.filter((g) => {
+      if (!g.last_backup) return false;
+      const d = new Date(g.last_backup);
+      return !isNaN(d.getTime()) && Date.now() - d.getTime() < 7 * 24 * 60 * 60 * 1000;
+    }).length,
+    [games],
+  );
+
+  const needsAttention = useMemo(
+    () => games.filter((g) => g.save_path_count > 0 && !g.last_backup).length,
     [games],
   );
 
@@ -257,20 +393,54 @@ export default function Dashboard() {
         >
           Back Up All
         </DeckButton>
+        <DeckButton
+          variant="secondary"
+          onClick={handleRestoreAll}
+          loading={restoringAll}
+          className="flex-shrink-0"
+        >
+          Restore All
+        </DeckButton>
+        <DeckButton
+          variant="ghost"
+          onClick={() => setAddGameOpen(true)}
+          className="flex-shrink-0"
+        >
+          + Add Game
+        </DeckButton>
       </div>
 
-      {/* Stats bar */}
+      {/* Health summary */}
       {games.length > 0 && (
-        <div className="flex-shrink-0 flex items-center gap-4 mb-4 text-sm text-gray-400">
-          <span>{games.length} games found</span>
+        <div className="flex-shrink-0 flex items-center gap-4 mb-4 text-sm">
+          <span className="text-gray-400">{games.length} games</span>
           <span className="text-gray-600">|</span>
-          <span>{gamesWithSaves} with save files</span>
+          <span className="text-gray-400">{gamesWithSaves} with saves</span>
+          <span className="text-gray-600">|</span>
+          <span className="text-green-400">{backedUpRecently} backed up recently</span>
+          {needsAttention > 0 && (
+            <>
+              <span className="text-gray-600">|</span>
+              <span className="text-yellow-400">{needsAttention} need backup</span>
+            </>
+          )}
           {search && (
             <>
               <span className="text-gray-600">|</span>
-              <span>{filteredGames.length} matching &ldquo;{search}&rdquo;</span>
+              <span className="text-gray-400">{filteredGames.length} matching &ldquo;{search}&rdquo;</span>
             </>
           )}
+        </div>
+      )}
+
+      {/* Bulk progress */}
+      {bulkProgress && (
+        <div className="flex-shrink-0 mb-4">
+          <DeckProgressBar
+            current={bulkProgress.current}
+            total={bulkProgress.total}
+            label={bulkProgress.label}
+          />
         </div>
       )}
 
@@ -336,16 +506,19 @@ export default function Dashboard() {
               {/* Game art */}
               <GameImage steamId={game.steam_id} title={game.title} />
 
-              {/* Card body — compact: title, badge, last backup only */}
+              {/* Card body — compact: title, badge, launcher, last backup */}
               <div className="p-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="font-semibold text-white text-sm leading-tight line-clamp-1">{game.title}</h3>
-                  <DeckStatusBadge status={game.status} />
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <LauncherBadge launcher={game.launcher} />
+                    <DeckStatusBadge status={game.status} />
+                  </div>
                 </div>
 
                 {game.last_backup && (
                   <p className="text-xs text-gray-500 mt-1">
-                    Last: {game.last_backup}
+                    Last: {relativeTime(game.last_backup)}
                   </p>
                 )}
               </div>
@@ -461,7 +634,7 @@ export default function Dashboard() {
                       className="bg-gray-900/50 rounded-xl p-3 flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm text-gray-200">{b.timestamp}</p>
+                        <p className="text-sm text-gray-200">{relativeTime(b.timestamp)}</p>
                         <p className="text-xs text-gray-500">
                           {formatBytes(b.size_bytes)} &middot; {b.checksum.slice(0, 12)}...
                         </p>
@@ -469,7 +642,7 @@ export default function Dashboard() {
                       <DeckButton
                         size="sm"
                         variant="secondary"
-                        onClick={() => handleRestore(selectedGame, b.id)}
+                        onClick={() => handleRestore(selectedGame, b.id, b)}
                         disabled={busyGameId === selectedGame.id}
                       >
                         Restore
@@ -481,6 +654,87 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+      </DeckModal>
+
+      {/* Restore confirmation modal */}
+      <DeckModal
+        open={!!confirmRestore}
+        onClose={() => setConfirmRestore(null)}
+        title="Confirm Restore"
+      >
+        {confirmRestore && (
+          <div className="space-y-4">
+            <p className="text-gray-300">
+              Restore <span className="font-semibold text-white">{confirmRestore.game.title}</span>?
+            </p>
+            {confirmRestore.backup && (
+              <div className="bg-gray-900/50 rounded-lg p-3 text-sm text-gray-400">
+                <p>Backup: {relativeTime(confirmRestore.backup.timestamp)}</p>
+                <p>Size: {formatBytes(confirmRestore.backup.size_bytes)}</p>
+                <p className="font-mono text-xs mt-1">Checksum: {confirmRestore.backup.checksum}</p>
+              </div>
+            )}
+            <p className="text-sm text-yellow-400">
+              Your current saves will be backed up first as a safety measure.
+            </p>
+            <div className="flex gap-3">
+              <DeckButton fullWidth variant="secondary" onClick={() => setConfirmRestore(null)}>
+                Cancel
+              </DeckButton>
+              <DeckButton fullWidth variant="danger" onClick={handleConfirmRestore}>
+                Restore
+              </DeckButton>
+            </div>
+          </div>
+        )}
+      </DeckModal>
+
+      {/* Add Game modal */}
+      <DeckModal
+        open={addGameOpen}
+        onClose={() => { setAddGameOpen(false); setNewGameTitle(""); setNewGamePath(""); }}
+        title="Add Custom Game"
+      >
+        <div className="space-y-4">
+          <DeckInput
+            placeholder="Game title"
+            value={newGameTitle}
+            onChange={(e) => setNewGameTitle(e.target.value)}
+          />
+          <div className="flex items-center gap-2">
+            <DeckInput
+              placeholder="Save folder path"
+              value={newGamePath}
+              onChange={(e) => setNewGamePath(e.target.value)}
+              className="flex-1"
+            />
+            <DeckButton
+              variant="secondary"
+              onClick={async () => {
+                const selected = await open({ directory: true, title: "Select Save Folder" });
+                if (selected) setNewGamePath(selected);
+              }}
+            >
+              Browse
+            </DeckButton>
+          </div>
+          <div className="flex gap-3">
+            <DeckButton
+              fullWidth
+              variant="secondary"
+              onClick={() => { setAddGameOpen(false); setNewGameTitle(""); setNewGamePath(""); }}
+            >
+              Cancel
+            </DeckButton>
+            <DeckButton
+              fullWidth
+              onClick={handleAddGame}
+              disabled={!newGameTitle.trim() || !newGamePath.trim()}
+            >
+              Add Game
+            </DeckButton>
+          </div>
+        </div>
       </DeckModal>
     </div>
   );

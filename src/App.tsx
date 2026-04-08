@@ -7,6 +7,7 @@ import SyncWizard from "./pages/SyncWizard";
 import SetupWizard from "./pages/SetupWizard";
 import { getSettings } from "./lib/api";
 import { GamepadProvider } from "./contexts/GamepadContext";
+import { SetupContext } from "./contexts/SetupContext";
 
 function App() {
   const [ready, setReady] = useState(false);
@@ -27,23 +28,25 @@ function App() {
   if (!ready) return null;
 
   return (
-    <GamepadProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/setup" element={<SetupWizard />} />
-          <Route path="/" element={<Layout />}>
-            <Route
-              index
-              element={
-                needsSetup ? <Navigate to="/setup" replace /> : <Dashboard />
-              }
-            />
-            <Route path="settings" element={<Settings />} />
-            <Route path="sync" element={<SyncWizard />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </GamepadProvider>
+    <SetupContext.Provider value={{ setNeedsSetup }}>
+      <GamepadProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/setup" element={<SetupWizard />} />
+            <Route path="/" element={<Layout />}>
+              <Route
+                index
+                element={
+                  needsSetup ? <Navigate to="/setup" replace /> : <Dashboard />
+                }
+              />
+              <Route path="settings" element={<Settings />} />
+              <Route path="sync" element={<SyncWizard />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </GamepadProvider>
+    </SetupContext.Provider>
   );
 }
 

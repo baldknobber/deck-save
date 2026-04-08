@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { DeckButton, DeckCard } from "../components/deck";
 import { useGridNav } from "../hooks/useGridNav";
+import { useSetup } from "../contexts/SetupContext";
 import {
   checkSteamShortcut,
   registerSteamShortcut,
@@ -20,6 +21,7 @@ export default function SetupWizard() {
   const containerRef = useRef<HTMLDivElement>(null);
   useGridNav(containerRef, 1);
   const navigate = useNavigate();
+  const { setNeedsSetup } = useSetup();
 
   const [step, setStep] = useState<Step>("gamepad");
   const [gamepadDetected, setGamepadDetected] = useState<string | null>(null);
@@ -46,13 +48,17 @@ export default function SetupWizard() {
     if (step !== "gamepad") return;
     let unlisten: (() => void) | undefined;
 
+    // Auto-advance after 3s if no gamepad event fires
+    const timer = setTimeout(() => {
+      setStep("steam");
+    }, 3000);
+
     listen<{ kind: string; name: string; pressed?: boolean }>(
       "gamepad-event",
       (event) => {
         const ev = event.payload;
-        // Any event means a gamepad is connected
+        clearTimeout(timer);
         setGamepadDetected("Gamepad connected");
-        // A button press advances to next step
         if (ev.kind === "button" && ev.name === "A" && ev.pressed) {
           setStep("steam");
         }
@@ -62,6 +68,7 @@ export default function SetupWizard() {
     });
 
     return () => {
+      clearTimeout(timer);
       unlisten?.();
     };
   }, [step]);
@@ -135,6 +142,7 @@ export default function SetupWizard() {
 
   const handleFinish = async () => {
     await updateSetting("setup_complete", "true");
+    setNeedsSetup(false);
     navigate("/");
   };
 
@@ -186,7 +194,10 @@ export default function SetupWizard() {
           <div className="p-6 space-y-4">
             <h2 className="text-xl font-semibold">🎯 Add to Steam</h2>
             <p className="text-gray-400">
-              Register DeckSave as a non-Steam game so it appears in Gaming Mode.
+              Register DeckSave as a non-Steam game so it appears in your Steam library.
+            </p>
+            <p className="text-xs text-amber-400">
+              Close Steam before registering. Restart Steam afterwards to see the shortcut.
             </p>
 
             {shortcutStatus === "already" && (
@@ -211,14 +222,14 @@ export default function SetupWizard() {
             )}
 
             <div className="flex gap-3 pt-2">
-              {shortcutStatus !== "done" && shortcutStatus !== "already" && (
+              {shortcutStatus !== "done" && (
                 <DeckButton
                   data-deck-focusable
                   variant="primary"
                   onClick={handleRegisterShortcut}
                   disabled={shortcutStatus === "registering" || shortcutStatus === "checking"}
                 >
-                  {shortcutStatus === "registering" ? "Registering…" : "Add to Steam"}
+                  {shortcutStatus === "registering" ? "Registering…" : shortcutStatus === "already" ? "Re-register" : "Add to Steam"}
                 </DeckButton>
               )}
               <DeckButton data-deck-focusable onClick={handleSkip} variant="ghost">
@@ -292,7 +303,7 @@ export default function SetupWizard() {
           <div
             key={s}
             className={`w-3 h-3 rounded-full transition-colors ${
-              i < stepIdx ? "bg-blue-400" : i === stepIdx - 1 ? "bg-blue-400" : "bg-gray-600"
+              i < stepIdx ? "bg-blue-400" : "bg-gray-600"
             }`}
           />
         ))}

@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use tauri::Emitter;
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 
@@ -313,6 +314,7 @@ pub fn backup_game(
 
 #[tauri::command]
 pub fn backup_all(
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<Vec<BackupRecord>, String> {
     let conn = state
@@ -342,10 +344,18 @@ pub fn backup_all(
         .filter(|(_, _, paths)| !paths.is_empty())
         .collect();
 
+    let total = games.len();
     let mut results = Vec::new();
     let mut errors = Vec::new();
 
-    for (game_id, title, save_paths) in &games {
+    for (i, (game_id, title, save_paths)) in games.iter().enumerate() {
+        let _ = app.emit("backup-progress", serde_json::json!({
+            "game_id": game_id,
+            "current": i + 1,
+            "total": total,
+            "detail": format!("Backing up {title}..."),
+        }));
+
         match create_backup_zip(*game_id, title, save_paths, &root) {
             Ok((zip_path, size, checksum)) => {
                 match record_backup(&conn, *game_id, &zip_path, size, &checksum) {
@@ -377,8 +387,17 @@ pub fn backup_all(
 pub fn restore_game(
     game_id: i64,
     backup_id: Option<i64>,
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<(), String> {
+    let emit = |stage: &str, detail: &str| {
+        let _ = app.emit("restore-progress", serde_json::json!({
+            "game_id": game_id,
+            "stage": stage,
+            "detail": detail,
+        }));
+    };
+
     let conn = state
         .db
         .lock()
@@ -413,6 +432,7 @@ pub fn restore_game(
     }
 
     // Verify checksum
+    emit("verifying", &format!("Verifying checksum for \"{title}\"..."));
     {
         let mut hasher = Sha256::new();
         let mut f =
@@ -436,6 +456,7 @@ pub fn restore_game(
     }
 
     // Safety backup: back up current saves before overwriting
+    emit("safety_backup", &format!("Creating safety backup of current \"{title}\" saves..."));
     let root = backup_root(&conn, &state.app_data_dir)?;
     match create_backup_zip(game_id, &title, &save_paths, &root) {
         Ok((pre_zip, pre_size, pre_hash)) => {
@@ -453,6 +474,7 @@ pub fn restore_game(
     // Extract zip entries back to their original save path directories.
     // Entries prefixed with "pathN/" go to save_paths[N].
     // Entries without a prefix go to save_paths[0] (single-path backups or legacy).
+    emit("extracting", &format!("Extracting save files for \"{title}\"..."));
     let zip_file =
         fs::File::open(&zip_path).map_err(|e| format!("Cannot open backup zip: {e}"))?;
     let mut archive =
@@ -544,6 +566,211 @@ pub fn restore_game(
         default_target.display()
     );
 
+    emit("complete", &format!("Restored \"{title}\" successfully"));
+    Ok(())
+}
+
+// ─── Restore All ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Clone)]
+pub struct RestoreAllResult {
+    pub restored: usize,
+    pub failed: usize,
+    pub errors: Vec<String>,
+}
+
+#[tauri::command]
+pub fn restore_all(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<RestoreAllResult, String> {
+    let games: Vec<(i64, String)> = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|e| format!("DB lock error: {e}"))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT g.id, g.title FROM games g \
+                 INNER JOIN backups b ON b.game_id = g.id \
+                 ORDER BY g.title COLLATE NOCASE",
+            )
+            .map_err(|e| format!("DB query error: {e}"))?;
+
+        let rows: Vec<(i64, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| format!("DB query error: {e}"))?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    };
+
+    let total = games.len();
+    let mut restored = 0usize;
+    let mut failed = 0usize;
+    let mut errors = Vec::new();
+
+    for (i, (game_id, title)) in games.iter().enumerate() {
+        let _ = app.emit("restore-progress", serde_json::json!({
+            "game_id": game_id,
+            "stage": "restoring",
+            "detail": format!("Restoring \"{title}\" ({}/{total})...", i + 1),
+            "current": i + 1,
+            "total": total,
+        }));
+
+        match do_restore(*game_id, None, &app, &state) {
+            Ok(()) => restored += 1,
+            Err(e) => {
+                failed += 1;
+                errors.push(format!("{title}: {e}"));
+            }
+        }
+    }
+
+    let _ = app.emit("restore-progress", serde_json::json!({
+        "stage": "all_complete",
+        "detail": format!("Restored {restored} games, {failed} failed"),
+        "current": total,
+        "total": total,
+    }));
+
+    Ok(RestoreAllResult {
+        restored,
+        failed,
+        errors,
+    })
+}
+
+/// Inner restore logic for `restore_all`. Duplicates the restore_game logic
+/// but takes references instead of State<> so it can be called in a loop.
+fn do_restore(
+    game_id: i64,
+    backup_id: Option<i64>,
+    app: &tauri::AppHandle,
+    state: &tauri::State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let emit = |stage: &str, detail: &str| {
+        let _ = app.emit("restore-progress", serde_json::json!({
+            "game_id": game_id,
+            "stage": stage,
+            "detail": detail,
+        }));
+    };
+
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("DB lock error: {e}"))?;
+    let (title, save_paths) = get_game(&conn, game_id)?;
+
+    if save_paths.is_empty() {
+        return Err(format!("No save paths configured for \"{title}\""));
+    }
+
+    let (b_id, b_path, b_checksum): (i64, String, String) = if let Some(bid) = backup_id {
+        conn.query_row(
+            "SELECT id, file_path, checksum FROM backups WHERE id = ?1 AND game_id = ?2",
+            rusqlite::params![bid, game_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|e| format!("Backup not found (id={bid}): {e}"))?
+    } else {
+        conn.query_row(
+            "SELECT id, file_path, checksum FROM backups WHERE game_id = ?1 ORDER BY version DESC LIMIT 1",
+            rusqlite::params![game_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|_| format!("No backups found for \"{title}\""))?
+    };
+
+    let zip_path = PathBuf::from(&b_path);
+    if !zip_path.exists() {
+        return Err(format!("Backup file missing: {b_path}"));
+    }
+
+    emit("verifying", &format!("Verifying checksum for \"{title}\"..."));
+    {
+        let mut hasher = Sha256::new();
+        let mut f = fs::File::open(&zip_path).map_err(|e| format!("Cannot open backup zip: {e}"))?;
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            let n = f.read(&mut buf).map_err(|e| format!("Hash read error: {e}"))?;
+            if n == 0 { break; }
+            hasher.update(&buf[..n]);
+        }
+        let hash = format!("{:x}", hasher.finalize());
+        if hash != b_checksum {
+            return Err(format!("Checksum mismatch for backup {b_id}: expected {b_checksum}, got {hash}"));
+        }
+    }
+
+    emit("safety_backup", &format!("Creating safety backup of current \"{title}\" saves..."));
+    let root = backup_root(&conn, &state.app_data_dir)?;
+    match create_backup_zip(game_id, &title, &save_paths, &root) {
+        Ok((pre_zip, pre_size, pre_hash)) => {
+            record_backup(&conn, game_id, &pre_zip, pre_size, &pre_hash).ok();
+        }
+        Err(_) => {}
+    }
+
+    emit("extracting", &format!("Extracting save files for \"{title}\"..."));
+    let zip_file = fs::File::open(&zip_path).map_err(|e| format!("Cannot open backup zip: {e}"))?;
+    let mut archive = zip::ZipArchive::new(zip_file).map_err(|e| format!("Invalid zip archive: {e}"))?;
+
+    let target_dirs: Vec<PathBuf> = save_paths.iter().map(|sp| {
+        let p = PathBuf::from(sp);
+        if p.extension().is_some() { p.parent().map(|par| par.to_path_buf()).unwrap_or(p) } else { p }
+    }).collect();
+
+    for dir in &target_dirs {
+        fs::create_dir_all(dir).map_err(|e| format!("Cannot create restore dir {}: {e}", dir.display()))?;
+    }
+
+    let default_target = &target_dirs[0];
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| format!("Zip read error: {e}"))?;
+        let entry_name = entry.name().to_string();
+
+        let (target_dir, rel_name) = if let Some(rest) = entry_name.strip_prefix("path") {
+            if let Some(slash_pos) = rest.find('/') {
+                if let Ok(idx) = rest[..slash_pos].parse::<usize>() {
+                    let rel = &rest[slash_pos + 1..];
+                    if idx < target_dirs.len() && !rel.is_empty() {
+                        (&target_dirs[idx], rel.to_string())
+                    } else {
+                        (default_target, entry_name.clone())
+                    }
+                } else {
+                    (default_target, entry_name.clone())
+                }
+            } else {
+                (default_target, entry_name.clone())
+            }
+        } else {
+            (default_target, entry_name.clone())
+        };
+
+        let out_path = target_dir.join(&rel_name);
+
+        if rel_name.contains("..") { continue; }
+        let canon_target = fs::canonicalize(target_dir).unwrap_or_else(|_| target_dir.clone());
+        if !out_path.starts_with(target_dir) && !out_path.starts_with(&canon_target) { continue; }
+
+        if entry.is_dir() {
+            fs::create_dir_all(&out_path).map_err(|e| format!("Cannot create dir {}: {e}", out_path.display()))?;
+        } else {
+            if let Some(parent) = out_path.parent() {
+                fs::create_dir_all(parent).map_err(|e| format!("Cannot create parent dir: {e}"))?;
+            }
+            let mut outfile = fs::File::create(&out_path).map_err(|e| format!("Cannot create {}: {e}", out_path.display()))?;
+            std::io::copy(&mut entry, &mut outfile).map_err(|e| format!("Restore write error: {e}"))?;
+        }
+    }
+
+    emit("complete", &format!("Restored \"{title}\" successfully"));
     Ok(())
 }
 
