@@ -92,7 +92,7 @@ jobs:
     needs: build-and-release
     runs-on: ubuntu-latest
     container:
-      image: bilelmoussaoui/flatpak-github-actions:gnome-48
+      image: bilelmoussaoui/flatpak-github-actions:gnome-46
       options: --privileged
 
     steps:
@@ -110,6 +110,11 @@ jobs:
           cp src-tauri/icons/32x32.png flatpak/
           cp src-tauri/icons/64x64.png flatpak/
           cp src-tauri/icons/128x128.png flatpak/
+
+      - name: Install GNOME 48 runtime
+        run: |
+          flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install -y --noninteractive flathub org.gnome.Platform//48 org.gnome.Sdk//48
 
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
