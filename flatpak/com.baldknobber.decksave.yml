@@ -1,6 +1,6 @@
 id: com.baldknobber.decksave
 runtime: org.gnome.Platform
-runtime-version: '47'
+runtime-version: '48'
 sdk: org.gnome.Sdk
 command: deck-save
 appstream-compose: false
