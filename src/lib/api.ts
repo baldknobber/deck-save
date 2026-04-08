@@ -146,3 +146,48 @@ export async function syncUpdateSettings(
 ): Promise<void> {
   return invoke("sync_update_settings", { apiKey, baseUrl });
 }
+
+// ── Steam Shortcut Registration ──────────────────────────────────
+
+export interface ShortcutResult {
+  registered: boolean;
+  already_existed: boolean;
+}
+
+export async function checkSteamShortcut(): Promise<boolean> {
+  return invoke<boolean>("check_steam_shortcut");
+}
+
+export async function registerSteamShortcut(): Promise<ShortcutResult> {
+  return invoke<ShortcutResult>("register_steam_shortcut");
+}
+
+// ── Syncthing Management ────────────────────────────────────────────
+
+export interface SyncthingInfo {
+  installed: boolean;
+  path: string | null;
+  version: string | null;
+  managed: boolean;
+}
+
+export interface InstallResult {
+  version: string;
+  path: string;
+}
+
+export async function checkSyncthingInstalled(): Promise<SyncthingInfo> {
+  return invoke<SyncthingInfo>("check_syncthing_installed");
+}
+
+export async function installSyncthing(): Promise<InstallResult> {
+  return invoke<InstallResult>("install_syncthing");
+}
+
+export async function startSyncthing(): Promise<void> {
+  return invoke("start_syncthing");
+}
+
+export async function stopSyncthing(): Promise<void> {
+  return invoke("stop_syncthing");
+}

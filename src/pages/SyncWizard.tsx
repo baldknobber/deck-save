@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   syncStatus,
   syncListDevices,
@@ -21,10 +21,14 @@ import {
   DeckModal,
   DeckSelect,
 } from "../components/deck";
+import { useGridNav } from "../hooks/useGridNav";
 
 type Step = "status" | "devices" | "folder" | "monitor";
 
 export default function SyncWizard() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useGridNav(containerRef, 1);
+
   const [step, setStep] = useState<Step>("status");
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [devices, setDevices] = useState<SyncDevice[]>([]);
@@ -156,7 +160,7 @@ export default function SyncWizard() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div ref={containerRef} className="max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <h2 className="text-2xl font-bold">Sync</h2>

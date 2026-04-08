@@ -13,10 +13,26 @@ A lightweight desktop app for **backing up and syncing game save files** across 
 - **One-click backup & restore** — Versioned zip backups with SHA-256 integrity verification
 - **File watcher** — Detects save file changes in real time and triggers auto-backup (on-change, hourly, or daily)
 - **Syncthing sync** — Peer-to-peer save sync between devices via [Syncthing](https://syncthing.net/) (no accounts, no cloud)
-- **Steam Deck optimized** — Gamepad-first UI with 48px+ touch targets, D-pad navigation, and 1280×800 layout
+- **Syncthing auto-install** — DeckSave downloads and manages Syncthing for you — no separate setup needed
+- **Gamepad controls** — Native Gamepad API support for Steam Deck (D-pad, A/B buttons, analog stick, shoulder buttons)
+- **Auto-registers in Steam** — Adds itself as a non-Steam game so it appears in Gaming Mode
+- **First-run wizard** — Guided setup: gamepad check, Steam registration, Syncthing install
+- **Steam Deck optimized** — Gamepad-first UI with 48px+ touch targets and 1280×800 layout
 - **System tray** — Minimizes to tray on Windows; runs quietly in the background
 - **Desktop notifications** — OS-native notifications when auto-backups complete
 - **Lightweight** — No Electron, no bundled runtime. Uses the system webview via Tauri
+
+## Gamepad Controls
+
+| Button | Action |
+|--------|--------|
+| D-pad / Left Stick | Navigate between items |
+| A | Confirm / activate |
+| B | Back / close modal |
+| L1 | Previous tab |
+| R1 | Next tab |
+
+Keyboard arrow keys, Enter, and Escape also work as fallbacks.
 
 ## How It Works
 
@@ -31,7 +47,8 @@ A lightweight desktop app for **backing up and syncing game save files** across 
 │  ├── Ludusavi manifest (save path DB)   │
 │  ├── Backup engine (zip + SHA-256)      │
 │  ├── File watcher (notify crate)        │
-│  ├── Syncthing REST API client          │
+│  ├── Syncthing REST API + auto-install  │
+│  ├── Steam shortcut registration        │
 │  └── SQLite (history, settings)         │
 └─────────────────────────────────────────┘
 ```
@@ -52,6 +69,8 @@ One-liner install (bundles all dependencies, works on SteamOS):
 curl -sL https://raw.githubusercontent.com/baldknobber/deck-save/master/scripts/deck-install-flatpak.sh | bash
 ```
 Then run: `flatpak run com.baldknobber.decksave`
+
+On first launch, the setup wizard will offer to register DeckSave in Steam (so it appears in Gaming Mode) and install Syncthing.
 
 ### Linux (AppImage — requires webkit2gtk-4.1)
 ```bash
@@ -92,60 +111,33 @@ cargo tauri dev
 | Save path database | [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest) |
 | File watching | [notify](https://github.com/notify-rs/notify) |
 | Sync | [Syncthing](https://syncthing.net/) REST API |
+| Steam shortcuts | [steam_shortcuts_util](https://github.com/PhilipK/steam_shortcuts_util) |
 | Compression | [zip](https://github.com/zip-rs/zip2) (deflate) |
 | Integrity | [sha2](https://github.com/RustCrypto/hashes) (SHA-256) |
 
-## Testing on Steam Deck
-
-1. **Switch to Desktop Mode** on your Steam Deck
-2. **Open Konsole** and run:
-   ```bash
-   curl -sL https://raw.githubusercontent.com/baldknobber/deck-save/master/scripts/deck-install-flatpak.sh | bash
-   ```
-   This downloads the Flatpak bundle (includes webkit2gtk) and installs it.
-
-3. **Launch**:
-   ```bash
-   flatpak run com.baldknobber.decksave
-   ```
-   Or find DeckSave in your application menu.
-
-4. **Troubleshooting** — If you get a white screen or errors:
-   ```bash
-   flatpak run com.baldknobber.decksave 2>&1 | head -30
-   ```
-   The app prints platform diagnostics on startup. Report the output at [github.com/baldknobber/deck-save/issues](https://github.com/baldknobber/deck-save/issues).
-
-5. **Verify**
-   - Dashboard should detect your installed Steam games
-   - Tap a game and create a backup — check that the zip appears in `~/.local/share/com.decksave.app/backups/`
-   - Enable the file watcher and confirm it triggers on save file changes
-   - (Optional) Set up Syncthing on both devices and test sync via the Sync Wizard
-
-> **Note:** Syncthing must be installed separately on the Deck (`flatpak install flathub me.kozec.syncthingtk` or via `pacman`).
-
 ## Roadmap
 
-DeckSave is currently at **v0.1.0 (MVP)**. Planned improvements:
-
+- [x] **Flatpak packaging** — Bundled for Steam Deck / SteamOS
+- [x] **Gamepad controls** — Native Gamepad API (D-pad, A/B, L1/R1 tab switching)
+- [x] **Steam shortcut registration** — Auto-add to Steam for Gaming Mode
+- [x] **Syncthing auto-install** — Download and manage Syncthing automatically
+- [x] **First-run wizard** — Guided setup on first launch
 - [ ] **Auto-updater** — In-app update checks via Tauri's updater plugin
 - [ ] **Non-Steam game support** — Manual path entry for GOG, Epic, emulators, etc.
-- [ ] **Cloud backup option** — Optional upload to a cloud provider (S3, Backblaze B2) as a secondary backup target
+- [ ] **Cloud backup option** — Optional upload to a cloud provider as a secondary backup target
 - [ ] **Per-game sync rules** — Choose which games sync and which stay local
 - [ ] **UI themes** — Light mode, OLED-optimized dark theme
 - [ ] **Backup browser** — View and diff individual files inside backup zips
 - [ ] **Import/export settings** — Transfer DeckSave config between machines
-- [x] **Flatpak packaging** — Bundled for Steam Deck / SteamOS (no system webkit2gtk needed)
 
 ## Credits & Acknowledgments
 
-This project builds on the work of several open-source projects:
-
-- **[Ludusavi](https://github.com/mtkennerly/ludusavi)** by Matthew T. Kennerly — DeckSave uses the [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest), a community-maintained database of game save locations covering 52,000+ games. This project would not be practical without it.
-- **[Syncthing](https://syncthing.net/)** — Open-source continuous file synchronization. DeckSave uses Syncthing's REST API for peer-to-peer save sync between devices.
+- **[Ludusavi](https://github.com/mtkennerly/ludusavi)** by Matthew T. Kennerly — DeckSave uses the [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest), a community-maintained database of game save locations covering 52,000+ games.
+- **[Syncthing](https://syncthing.net/)** — Open-source continuous file synchronization. DeckSave uses Syncthing's REST API for peer-to-peer save sync.
 - **[Tauri](https://tauri.app/)** — The framework that makes it possible to build a small, fast, native desktop app with a web frontend.
 - **[steamlocate](https://github.com/WilliamVenner/steamlocate)** by William Venner — Rust crate for locating Steam installations and libraries.
-- **[PCGamingWiki](https://www.pcgamingwiki.com/)** — The Ludusavi manifest that DeckSave relies on is largely sourced from PCGamingWiki's save game location data.
+- **[steam_shortcuts_util](https://github.com/PhilipK/steam_shortcuts_util)** by PhilipK — Rust crate for reading and writing Steam's shortcuts.vdf format (also used by [BoilR](https://github.com/PhilipK/BoilR)).
+- **[PCGamingWiki](https://www.pcgamingwiki.com/)** — The Ludusavi manifest is largely sourced from PCGamingWiki's save game location data.
 
 ## License
 

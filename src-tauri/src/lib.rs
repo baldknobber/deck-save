@@ -14,6 +14,7 @@ pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
     pub app_data_dir: PathBuf,
     pub header_url_cache: Mutex<HashMap<String, Option<String>>>,
+    pub syncthing_process: Mutex<Option<std::process::Child>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -54,6 +55,7 @@ pub fn run() {
                 db: Mutex::new(conn),
                 app_data_dir: app_dir,
                 header_url_cache: Mutex::new(HashMap::new()),
+                syncthing_process: Mutex::new(None),
             });
 
             // ── System tray (Windows only — Linux lacks libayatana-appindicator3 in Flatpak) ──
@@ -102,6 +104,12 @@ pub fn run() {
             commands::sync::sync_detect_conflicts,
             commands::sync::sync_resolve_conflict,
             commands::sync::sync_update_settings,
+            commands::shortcut::check_steam_shortcut,
+            commands::shortcut::register_steam_shortcut,
+            commands::syncthing_mgr::check_syncthing_installed,
+            commands::syncthing_mgr::install_syncthing,
+            commands::syncthing_mgr::start_syncthing,
+            commands::syncthing_mgr::stop_syncthing,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

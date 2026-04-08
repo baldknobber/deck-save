@@ -1,9 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { getSettings, updateSetting, getCachedGames } from "../lib/api";
 import { DeckButton, DeckInput, DeckToggle, DeckSelect } from "../components/deck";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useGridNav } from "../hooks/useGridNav";
 
 export default function Settings() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useGridNav(containerRef, 1);
+  const navigate = useNavigate();
+
   const [backupDir, setBackupDir] = useState("");
   const [autoBackup, setAutoBackup] = useState(true);
   const [backupInterval, setBackupInterval] = useState("hourly");
@@ -66,7 +72,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div ref={containerRef} className="max-w-2xl mx-auto">
       <h2 className="text-2xl font-bold mb-5">Settings</h2>
 
       {/* Watcher status */}
@@ -142,6 +148,20 @@ export default function Settings() {
             {saving ? "Saving..." : saved ? "Saved!" : "Save Settings"}
           </DeckButton>
         </div>
+      </section>
+
+      {/* Re-run setup */}
+      <section className="border-t border-gray-700 pt-6 mt-6">
+        <DeckButton
+          data-deck-focusable
+          variant="ghost"
+          onClick={async () => {
+            await updateSetting("setup_complete", "false");
+            navigate("/setup");
+          }}
+        >
+          Re-run Setup Wizard
+        </DeckButton>
       </section>
     </div>
   );

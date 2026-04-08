@@ -19,7 +19,7 @@ echo ""
 # 1. Ensure Flathub runtime is available
 echo "Ensuring GNOME runtime is available..."
 flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install --user -y flathub org.gnome.Platform//46 2>/dev/null || true
+flatpak install --user -y flathub org.gnome.Platform//48 2>/dev/null || true
 
 # 2. Get latest release tag
 echo "Checking latest release..."

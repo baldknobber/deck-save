@@ -16,9 +16,9 @@ finish-args:
   - --filesystem=home
   # SD card (Steam Deck external storage)
   - --filesystem=/run/media:ro
-  # Steam directories (game detection)
-  - --filesystem=~/.steam:ro
-  - --filesystem=~/.local/share/Steam:ro
+  # Steam directories (game detection + shortcut registration)
+  - --filesystem=~/.steam
+  - --filesystem=~/.local/share/Steam
   # Desktop notifications
   - --talk-name=org.freedesktop.Notifications
   # System tray

@@ -1,4 +1,8 @@
-import { Outlet, NavLink } from "react-router-dom";
+import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
+import { useCallback } from "react";
+import { useShoulderNav } from "../hooks/useGridNav";
+
+const TAB_PATHS = ["/", "/sync", "/settings"] as const;
 
 function NavIcon({ icon }: { icon: "games" | "sync" | "settings" }) {
   switch (icon) {
@@ -37,6 +41,21 @@ const tabs = [
 ];
 
 export default function Layout() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleShoulderSwitch = useCallback(
+    (delta: -1 | 1) => {
+      const idx = TAB_PATHS.indexOf(location.pathname as typeof TAB_PATHS[number]);
+      const cur = idx === -1 ? 0 : idx;
+      const next = (cur + delta + TAB_PATHS.length) % TAB_PATHS.length;
+      navigate(TAB_PATHS[next]);
+    },
+    [location.pathname, navigate],
+  );
+
+  useShoulderNav(handleShoulderSwitch);
+
   return (
     <div className="h-screen bg-gray-900 text-gray-100 flex flex-col overflow-hidden">
       {/* Header — compact, informational */}
