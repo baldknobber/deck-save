@@ -3,6 +3,7 @@ runtime: org.gnome.Platform
 runtime-version: '47'
 sdk: org.gnome.Sdk
 command: deck-save
+appstream-compose: false
 
 finish-args:
   # Display
