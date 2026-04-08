@@ -56,13 +56,9 @@ pub fn run() {
                 header_url_cache: Mutex::new(HashMap::new()),
             });
 
-            // ── System tray ──────────────────────────────────────────
-            match setup_tray(app) {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("[DeckSave] System tray unavailable (non-fatal): {e}");
-                }
-            }
+            // ── System tray (Windows only — Linux lacks libayatana-appindicator3 in Flatpak) ──
+            #[cfg(target_os = "windows")]
+            setup_tray(app)?;
 
             // ── Close-to-tray on Windows ─────────────────────────────
             #[cfg(target_os = "windows")]
@@ -113,6 +109,7 @@ pub fn run() {
 
 /// Build the system tray icon with Show/Quit menu.
 /// On click, shows the main window. On "Quit", exits the app.
+#[cfg(target_os = "windows")]
 fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{Menu, MenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
