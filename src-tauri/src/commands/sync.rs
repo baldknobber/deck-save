@@ -97,8 +97,16 @@ pub fn sync_status(state: State<'_, AppState>) -> Result<SyncStatusResponse, Str
     };
 
     let Some(key) = api_key else {
+        // No API key found — check if the binary is at least installed
+        // so the UI shows "Not Running" instead of "Not Found"
+        let binary_installed = {
+            let managed = state.app_data_dir.join("syncthing").join(
+                if cfg!(target_os = "windows") { "syncthing.exe" } else { "syncthing" },
+            );
+            managed.exists()
+        };
         return Ok(SyncStatusResponse {
-            available: false,
+            available: binary_installed,
             running: false,
             my_device_id: String::new(),
             uptime: 0,

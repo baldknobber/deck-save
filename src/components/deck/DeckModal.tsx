@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { useGridNav } from "../../hooks/useGridNav";
 
 interface DeckModalProps {
   open: boolean;
@@ -14,6 +15,7 @@ export default function DeckModal({
   children,
 }: DeckModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  useGridNav(modalRef, 1);
 
   // Trap focus inside modal & close on Escape (B button on Deck)
   useEffect(() => {

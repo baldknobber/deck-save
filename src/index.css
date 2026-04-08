@@ -15,14 +15,26 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Deck-friendly focus rings — visible for gamepad/keyboard navigation */
+/* ── Focus rings — adaptive per input method ─────────────────── */
+
+/* Keyboard: browser's :focus-visible heuristic */
 *:focus-visible {
   @apply outline-none ring-2 ring-blue-500 ring-offset-2 ring-offset-gray-900;
 }
 
-/* Remove default focus outlines (focus-visible handles gamepad/keyboard) */
 *:focus:not(:focus-visible) {
   outline: none;
+}
+
+/* Gamepad: bright ring on programmatically-focused elements */
+body[data-input="gamepad"] [data-deck-focusable]:focus {
+  @apply outline-none ring-2 ring-blue-400 ring-offset-2 ring-offset-gray-900;
+}
+
+/* Mouse: suppress all focus rings */
+body[data-input="mouse"] :is(*:focus, *:focus-visible) {
+  outline: none;
+  box-shadow: none;
 }
 
 /* Custom scrollbar — thinner but still touchable */

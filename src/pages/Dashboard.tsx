@@ -96,8 +96,9 @@ export default function Dashboard() {
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [toast, setToast] = useState<string | null>(null);
 
+  const pageRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  useGridNav(gridRef, 3);
+  useGridNav(pageRef, 3);
 
   const refreshGames = useCallback(() => {
     getCachedGames()
@@ -220,7 +221,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="h-full flex flex-col">
+    <div ref={pageRef} className="h-full flex flex-col">
       {/* Top bar: search + actions */}
       <div className="flex-shrink-0 flex items-center gap-3 mb-4">
         <DeckInput

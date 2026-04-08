@@ -106,6 +106,12 @@ export default function SetupWizard() {
     try {
       const result = await installSyncthing();
       setSyncInfo({ installed: true, version: result.version, managed: true });
+      // Auto-start so the API key gets generated (needed by Sync tab later)
+      try {
+        await startSyncthing();
+      } catch {
+        // Non-fatal — user can start manually from Sync tab
+      }
       setSyncDone(true);
     } catch (e) {
       setSyncError(String(e));

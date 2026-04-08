@@ -21,13 +21,28 @@ import {
   DeckModal,
   DeckSelect,
 } from "../components/deck";
-import { useGridNav } from "../hooks/useGridNav";
+import { useGridNav, useTriggerNav } from "../hooks/useGridNav";
 
 type Step = "status" | "devices" | "folder" | "monitor";
+const STEPS: Step[] = ["status", "devices", "folder", "monitor"];
 
 export default function SyncWizard() {
   const containerRef = useRef<HTMLDivElement>(null);
   useGridNav(containerRef, 1);
+
+  // L2/R2 for sub-tab switching
+  useTriggerNav(
+    useCallback(
+      (delta: -1 | 1) => {
+        setStep((prev) => {
+          const idx = STEPS.indexOf(prev);
+          const next = (idx + delta + STEPS.length) % STEPS.length;
+          return STEPS[next];
+        });
+      },
+      [],
+    ),
+  );
 
   const [step, setStep] = useState<Step>("status");
   const [status, setStatus] = useState<SyncStatus | null>(null);
@@ -181,7 +196,7 @@ export default function SyncWizard() {
       {error && (
         <div className="mb-4 p-3 bg-red-900/40 border-2 border-red-800 rounded-xl text-red-300 text-sm flex items-center justify-between">
           <span>{error}</span>
-          <button onClick={() => setError("")} className="text-red-400 hover:text-red-300 ml-3">✕</button>
+          <button data-deck-focusable onClick={() => setError("")} className="text-red-400 hover:text-red-300 ml-3">✕</button>
         </div>
       )}
 

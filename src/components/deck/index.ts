@@ -1,5 +1,6 @@
 export { default as DeckButton } from "./DeckButton";
 export { default as DeckCard } from "./DeckCard";
+export { default as GamepadHintBar } from "./GamepadHintBar";
 export { default as DeckInput } from "./DeckInput";
 export { default as DeckModal } from "./DeckModal";
 export { default as DeckSelect } from "./DeckSelect";

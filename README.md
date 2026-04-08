@@ -31,8 +31,10 @@ A lightweight desktop app for **backing up and syncing game save files** across 
 | B | Back / close modal |
 | L1 | Previous tab |
 | R1 | Next tab |
+| L2 | Previous sub-tab |
+| R2 | Next sub-tab |
 
-Keyboard arrow keys, Enter, and Escape also work as fallbacks.
+Button hints appear automatically at the bottom of the screen when a gamepad is detected, and hide when you switch to mouse or keyboard.
 
 ## How It Works
 

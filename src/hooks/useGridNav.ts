@@ -238,3 +238,41 @@ export function useShoulderNav(onSwitch: (delta: -1 | 1) => void) {
     };
   }, []);
 }
+
+// ── Trigger-button hook (L2/R2 sub-tab switching) ────────────────
+
+/**
+ * Listens for L2/R2 gamepad button events and calls `onSwitch(-1 | 1)`.
+ * Use for sub-tab navigation within a page.
+ */
+export function useTriggerNav(onSwitch: (delta: -1 | 1) => void) {
+  const lastTime = useRef(0);
+  const cbRef = useRef(onSwitch);
+  cbRef.current = onSwitch;
+
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+
+    listen<GamepadEvent>("gamepad-event", (event) => {
+      const ev = event.payload;
+      if (ev.kind !== "button" || !ev.pressed) return;
+
+      const now = performance.now();
+      if (now - lastTime.current < TAB_REPEAT_MS) return;
+
+      if (ev.name === "L2") {
+        cbRef.current(-1);
+        lastTime.current = now;
+      } else if (ev.name === "R2") {
+        cbRef.current(1);
+        lastTime.current = now;
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+}

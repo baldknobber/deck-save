@@ -88,6 +88,38 @@ fn is_decksave_shortcut(s: &Shortcut<'_>) -> bool {
     false
 }
 
+/// Locate the app icon for Steam shortcut (absolute path).
+fn find_icon_path() -> String {
+    // Flatpak: icon installed via desktop-file convention
+    #[cfg(target_os = "linux")]
+    {
+        let candidates = [
+            "/app/share/icons/hicolor/128x128/apps/com.baldknobber.decksave.png",
+            "/app/share/icons/hicolor/256x256/apps/com.baldknobber.decksave.png",
+        ];
+        for p in &candidates {
+            if PathBuf::from(p).exists() {
+                return p.to_string();
+            }
+        }
+        // Fall back to any installed icon
+        if let Ok(home) = std::env::var("HOME") {
+            let local = format!("{home}/.local/share/icons/hicolor/128x128/apps/com.baldknobber.decksave.png");
+            if PathBuf::from(&local).exists() {
+                return local;
+            }
+        }
+    }
+    // Windows: use the exe itself (Steam reads its embedded icon)
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(exe) = std::env::current_exe() {
+            return exe.to_string_lossy().to_string();
+        }
+    }
+    String::new()
+}
+
 #[tauri::command]
 pub fn check_steam_shortcut() -> Result<bool, String> {
     let vdf_files = find_shortcut_files()?;
@@ -148,12 +180,13 @@ pub fn register_steam_shortcut() -> Result<ShortcutResult, String> {
         // Determine next order index
         let order_str = shortcuts.len().to_string();
 
+        let icon = find_icon_path();
         let new_shortcut = Shortcut::new(
             &order_str,
             APP_NAME,
             &exe,
             &start_dir,
-            "",            // icon — Steam will show a default
+            &icon,
             "",            // shortcut_path
             &launch_options,
         );

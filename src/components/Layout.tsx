@@ -1,6 +1,7 @@
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useCallback } from "react";
 import { useShoulderNav } from "../hooks/useGridNav";
+import GamepadHintBar from "./deck/GamepadHintBar";
 
 const TAB_PATHS = ["/", "/sync", "/settings"] as const;
 
@@ -67,6 +68,9 @@ export default function Layout() {
       <main className="flex-1 overflow-y-auto p-5">
         <Outlet />
       </main>
+
+      {/* Gamepad button hints — visible only when gamepad is active input */}
+      <GamepadHintBar />
 
       {/* Bottom tab bar — 60px, thumb-friendly for Deck */}
       <nav className="flex-shrink-0 bg-gray-800 border-t border-gray-700 flex" role="tablist">
