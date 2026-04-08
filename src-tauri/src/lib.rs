@@ -57,7 +57,12 @@ pub fn run() {
             });
 
             // ── System tray ──────────────────────────────────────────
-            setup_tray(app)?;
+            match setup_tray(app) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("[DeckSave] System tray unavailable (non-fatal): {e}");
+                }
+            }
 
             // ── Close-to-tray on Windows ─────────────────────────────
             #[cfg(target_os = "windows")]
