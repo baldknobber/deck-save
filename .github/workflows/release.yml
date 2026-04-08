@@ -115,7 +115,7 @@ jobs:
       - name: Build Flatpak
         run: |
           cd flatpak
-          flatpak-builder --force-clean --repo=repo builddir com.baldknobber.decksave.yml
+          flatpak-builder --force-clean --disable-updates --repo=repo builddir com.baldknobber.decksave.yml
           flatpak build-bundle repo DeckSave.flatpak com.baldknobber.decksave
 
       - name: Upload Flatpak artifact
