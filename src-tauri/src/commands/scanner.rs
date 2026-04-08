@@ -16,6 +16,7 @@ pub struct Game {
     pub save_path_count: usize,
     pub last_backup: Option<String>,
     pub status: String,
+    pub custom_save_paths: Vec<String>,
 }
 
 #[tauri::command]
@@ -165,6 +166,52 @@ pub fn scan_games(state: tauri::State<'_, crate::AppState>) -> Result<Vec<Game>,
             }
         }
 
+        // Heuristic Proton prefix scan: when a game uses Proton but no save
+        // paths were found from Ludusavi, scan common Windows save locations
+        // inside the Proton prefix for save-like files.
+        if is_proton && save_paths.is_empty() {
+            let pfx_user = game.library_path
+                .join("steamapps/compatdata")
+                .join(game.app_id.to_string())
+                .join("pfx/drive_c/users/steamuser");
+
+            let heuristic_dirs = [
+                pfx_user.join("AppData/Local"),
+                pfx_user.join("AppData/Roaming"),
+                pfx_user.join("AppData/LocalLow"),
+                pfx_user.join("Saved Games"),
+                pfx_user.join("Documents/My Games"),
+                pfx_user.join("Documents"),
+            ];
+
+            let save_extensions = [".sav", ".save", ".dat", ".sl2", ".bak", ".cfg", ".ini", ".json", ".xml"];
+
+            for dir in &heuristic_dirs {
+                if !dir.exists() { continue; }
+                // Walk max 3 levels deep to avoid scanning huge trees
+                let walker = walkdir::WalkDir::new(dir)
+                    .max_depth(3)
+                    .into_iter()
+                    .filter_map(|e| e.ok());
+
+                for entry in walker {
+                    if entry.file_type().is_file() {
+                        let name = entry.file_name().to_string_lossy().to_lowercase();
+                        if save_extensions.iter().any(|ext| name.ends_with(ext)) {
+                            if let Some(parent) = entry.path().parent() {
+                                let pb = parent.to_path_buf();
+                                if seen.insert(pb.clone()) {
+                                    save_paths.push(pb);
+                                }
+                            }
+                            // Found a match in this dir tree, no need to keep walking
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         // Upsert into SQLite
         let paths_json = serde_json::to_string(
             &save_paths
@@ -214,7 +261,8 @@ fn load_games_from_db(conn: &rusqlite::Connection) -> Result<Vec<Game>, String> 
     let mut stmt = conn
         .prepare(
             "SELECT g.id, g.title, g.steam_id, g.save_paths, g.status, \
-             (SELECT MAX(b.timestamp) FROM backups b WHERE b.game_id = g.id) \
+             (SELECT MAX(b.timestamp) FROM backups b WHERE b.game_id = g.id), \
+             g.custom_save_paths \
              FROM games g ORDER BY g.title COLLATE NOCASE",
         )
         .map_err(|e| format!("DB query error: {e}"))?;
@@ -222,7 +270,17 @@ fn load_games_from_db(conn: &rusqlite::Connection) -> Result<Vec<Game>, String> 
     let games = stmt
         .query_map([], |row| {
             let paths_json: String = row.get(3)?;
-            let save_paths: Vec<String> = serde_json::from_str(&paths_json).unwrap_or_default();
+            let custom_json: String = row.get::<_, String>(6).unwrap_or_else(|_| "[]".to_string());
+            let mut save_paths: Vec<String> = serde_json::from_str(&paths_json).unwrap_or_default();
+            let custom_save_paths: Vec<String> = serde_json::from_str(&custom_json).unwrap_or_default();
+
+            // Merge custom paths (prepend, deduplicated)
+            for cp in &custom_save_paths {
+                if !save_paths.contains(cp) {
+                    save_paths.insert(0, cp.clone());
+                }
+            }
+
             let save_path_count = save_paths.len();
             Ok(Game {
                 id: row.get(0)?,
@@ -232,6 +290,7 @@ fn load_games_from_db(conn: &rusqlite::Connection) -> Result<Vec<Game>, String> 
                 save_path_count,
                 last_backup: row.get(5)?,
                 status: row.get(4)?,
+                custom_save_paths,
             })
         })
         .map_err(|e| format!("DB query error: {e}"))?
@@ -239,4 +298,64 @@ fn load_games_from_db(conn: &rusqlite::Connection) -> Result<Vec<Game>, String> 
         .collect();
 
     Ok(games)
+}
+
+#[tauri::command]
+pub fn add_custom_save_path(
+    game_id: i64,
+    path: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| format!("DB lock error: {e}"))?;
+
+    let current_json: String = conn
+        .query_row(
+            "SELECT custom_save_paths FROM games WHERE id = ?1",
+            rusqlite::params![game_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Game not found: {e}"))?;
+
+    let mut paths: Vec<String> = serde_json::from_str(&current_json).unwrap_or_default();
+    if !paths.contains(&path) {
+        paths.push(path);
+    }
+
+    let new_json = serde_json::to_string(&paths).unwrap_or_else(|_| "[]".to_string());
+    conn.execute(
+        "UPDATE games SET custom_save_paths = ?1, updated_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![new_json, game_id],
+    )
+    .map_err(|e| format!("DB update error: {e}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_custom_save_path(
+    game_id: i64,
+    path: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| format!("DB lock error: {e}"))?;
+
+    let current_json: String = conn
+        .query_row(
+            "SELECT custom_save_paths FROM games WHERE id = ?1",
+            rusqlite::params![game_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Game not found: {e}"))?;
+
+    let mut paths: Vec<String> = serde_json::from_str(&current_json).unwrap_or_default();
+    paths.retain(|p| p != &path);
+
+    let new_json = serde_json::to_string(&paths).unwrap_or_else(|_| "[]".to_string());
+    conn.execute(
+        "UPDATE games SET custom_save_paths = ?1, updated_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![new_json, game_id],
+    )
+    .map_err(|e| format!("DB update error: {e}"))?;
+
+    Ok(())
 }

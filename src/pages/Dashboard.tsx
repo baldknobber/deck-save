@@ -7,10 +7,13 @@ import {
   restoreGame,
   getBackups,
   getSteamHeaderUrl,
+  addCustomSavePath,
+  removeCustomSavePath,
   type Game,
   type BackupRecord,
 } from "../lib/api";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import { DeckButton, DeckCard, DeckInput, DeckModal, DeckStatusBadge } from "../components/deck";
 import { useGridNav } from "../hooks/useGridNav";
 
@@ -222,12 +225,13 @@ export default function Dashboard() {
 
   return (
     <div ref={pageRef} className="h-full flex flex-col">
-      {/* Top bar: search + actions */}
-      <div className="flex-shrink-0 flex items-center gap-3 mb-4">
+      {/* Top bar: search + actions — horizontal nav zone */}
+      <div data-nav-zone="topbar" data-nav-type="horizontal" className="flex-shrink-0 flex items-center gap-3 mb-4">
         <DeckInput
           placeholder="Search games..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          className="flex-1"
           icon={
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="8" />
@@ -235,13 +239,14 @@ export default function Dashboard() {
             </svg>
           }
         />
-        <DeckButton onClick={handleScan} loading={scanning}>
+        <DeckButton onClick={handleScan} loading={scanning} className="flex-shrink-0">
           {scanning ? "Scanning..." : "Scan"}
         </DeckButton>
         <DeckButton
           variant="success"
           onClick={handleBackupAll}
           loading={backingUpAll}
+          className="flex-shrink-0"
           icon={
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
@@ -311,9 +316,11 @@ export default function Dashboard() {
           </DeckButton>
         </div>
       ) : (
-        /* Game grid */
+        /* Game grid — content zone with dynamic columns */
         <div
           ref={gridRef}
+          data-nav-zone="grid"
+          data-nav-type="grid"
           className="flex-1 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 content-start pb-2"
         >
           {filteredGames.map((game) => (
@@ -329,61 +336,18 @@ export default function Dashboard() {
               {/* Game art */}
               <GameImage steamId={game.steam_id} title={game.title} />
 
-              {/* Card body */}
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="font-semibold text-white text-base leading-tight line-clamp-1">{game.title}</h3>
+              {/* Card body — compact: title, badge, last backup only */}
+              <div className="p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-semibold text-white text-sm leading-tight line-clamp-1">{game.title}</h3>
                   <DeckStatusBadge status={game.status} />
                 </div>
 
-                {game.save_path_count > 0 && (
-                  <p className="text-sm text-gray-400 mb-3">
-                    {game.save_path_count} save location{game.save_path_count > 1 ? "s" : ""}
-                    {game.last_backup && (
-                      <span className="text-gray-500"> &middot; Last: {game.last_backup}</span>
-                    )}
+                {game.last_backup && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Last: {game.last_backup}
                   </p>
                 )}
-
-                {/* Action buttons — 48px min height */}
-                <div className="flex gap-2">
-                  <DeckButton
-                    size="sm"
-                    fullWidth
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleBackupGame(game);
-                    }}
-                    disabled={busyGameId === game.id || game.save_path_count === 0}
-                    loading={busyGameId === game.id}
-                    icon={
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
-                        <polyline points="17,21 17,13 7,13 7,21" />
-                      </svg>
-                    }
-                  >
-                    Backup
-                  </DeckButton>
-                  <DeckButton
-                    size="sm"
-                    variant="secondary"
-                    fullWidth
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRestore(game);
-                    }}
-                    disabled={busyGameId === game.id || !game.last_backup}
-                    icon={
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <polyline points="1,4 1,10 7,10" />
-                        <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
-                      </svg>
-                    }
-                  >
-                    Restore
-                  </DeckButton>
-                </div>
               </div>
             </DeckCard>
           ))}
@@ -408,11 +372,58 @@ export default function Dashboard() {
               <h4 className="text-sm font-medium text-gray-300 mb-2">Save Locations</h4>
               <div className="space-y-1">
                 {selectedGame.save_paths.map((p, i) => (
-                  <p key={i} className="text-sm text-gray-400 break-all bg-gray-900/50 px-3 py-2 rounded-lg">
-                    {p}
-                  </p>
+                  <div key={i} className="flex items-center gap-2">
+                    <p className="flex-1 text-sm text-gray-400 break-all bg-gray-900/50 px-3 py-2 rounded-lg">
+                      {p}
+                    </p>
+                    {selectedGame.custom_save_paths?.includes(p) && (
+                      <DeckButton
+                        size="sm"
+                        variant="danger"
+                        onClick={async () => {
+                          try {
+                            await removeCustomSavePath(selectedGame.id, p);
+                            const refreshed = await getCachedGames();
+                            setGames(refreshed);
+                            const updated = refreshed.find((g) => g.id === selectedGame.id);
+                            if (updated) {
+                              setSelectedGame(updated);
+                              setBackups(await getBackups(updated.id));
+                            }
+                          } catch (err) {
+                            setError(String(err));
+                          }
+                        }}
+                      >
+                        ✕
+                      </DeckButton>
+                    )}
+                  </div>
                 ))}
               </div>
+              <DeckButton
+                size="sm"
+                variant="ghost"
+                className="mt-2"
+                onClick={async () => {
+                  const selected = await open({ directory: true, title: "Select Save Folder" });
+                  if (selected) {
+                    try {
+                      await addCustomSavePath(selectedGame.id, selected);
+                      const refreshed = await getCachedGames();
+                      setGames(refreshed);
+                      const updated = refreshed.find((g) => g.id === selectedGame.id);
+                      if (updated) {
+                        setSelectedGame(updated);
+                      }
+                    } catch (err) {
+                      setError(String(err));
+                    }
+                  }
+                }}
+              >
+                + Add Save Path
+              </DeckButton>
             </div>
 
             {/* Quick actions */}

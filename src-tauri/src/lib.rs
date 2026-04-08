@@ -92,6 +92,8 @@ pub fn run() {
             commands::scanner::scan_games,
             commands::scanner::get_cached_games,
             commands::scanner::get_steam_header_url,
+            commands::scanner::add_custom_save_path,
+            commands::scanner::remove_custom_save_path,
             commands::backup::backup_game,
             commands::backup::backup_all,
             commands::backup::restore_game,

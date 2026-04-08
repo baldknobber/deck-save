@@ -59,18 +59,16 @@ export default function Layout() {
 
   return (
     <div className="h-screen bg-gray-900 text-gray-100 flex flex-col overflow-hidden">
-      {/* Header — compact, informational */}
-      <header className="flex-shrink-0 bg-gray-800/50 border-b border-gray-800 px-6 py-2.5 flex items-center">
+      {/* Header — compact, hints on right side */}
+      <header className="flex-shrink-0 bg-gray-800/50 border-b border-gray-800 px-6 py-2.5 flex items-center justify-between">
         <h1 className="text-lg font-bold text-white tracking-tight">DeckSave</h1>
+        <GamepadHintBar />
       </header>
 
       {/* Main content — scrollable */}
       <main className="flex-1 overflow-y-auto p-5">
         <Outlet />
       </main>
-
-      {/* Gamepad button hints — visible only when gamepad is active input */}
-      <GamepadHintBar />
 
       {/* Bottom tab bar — 60px, thumb-friendly for Deck */}
       <nav className="flex-shrink-0 bg-gray-800 border-t border-gray-700 flex" role="tablist">

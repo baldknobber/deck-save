@@ -9,6 +9,7 @@ import {
   syncDetectConflicts,
   syncResolveConflict,
   syncUpdateSettings,
+  startSyncthing,
   type SyncStatus,
   type SyncDevice,
   type SyncFolder,
@@ -200,8 +201,8 @@ export default function SyncWizard() {
         </div>
       )}
 
-      {/* Step navigation */}
-      <div className="flex gap-1 mb-5 bg-gray-800/50 rounded-xl p-1">
+      {/* Step navigation — horizontal nav zone */}
+      <div data-nav-zone="subtabs" data-nav-type="horizontal" className="flex gap-1 mb-5 bg-gray-800/50 rounded-xl p-1">
         {(
           [
             { id: "status", label: "Status" },
@@ -260,6 +261,25 @@ export default function SyncWizard() {
               </DeckButton>
             </div>
           </DeckCard>
+
+          {/* Start Syncthing button — when installed but not running */}
+          {status?.available && !status?.running && (
+            <DeckButton
+              fullWidth
+              onClick={async () => {
+                setError("");
+                try {
+                  await startSyncthing();
+                  // Wait 3s for Syncthing to bind API, then refresh
+                  setTimeout(() => refresh(), 3000);
+                } catch (err) {
+                  setError(String(err));
+                }
+              }}
+            >
+              Start Syncthing
+            </DeckButton>
+          )}
 
           {status?.running && (
             <>

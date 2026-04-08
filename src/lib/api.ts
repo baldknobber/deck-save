@@ -8,6 +8,7 @@ export interface Game {
   save_path_count: number;
   last_backup: string | null;
   status: string;
+  custom_save_paths: string[];
 }
 
 export interface BackupRecord {
@@ -66,6 +67,20 @@ export async function getSteamHeaderUrl(
   steamId: string,
 ): Promise<string | null> {
   return invoke<string | null>("get_steam_header_url", { steamId });
+}
+
+export async function addCustomSavePath(
+  gameId: number,
+  path: string,
+): Promise<void> {
+  return invoke("add_custom_save_path", { gameId, path });
+}
+
+export async function removeCustomSavePath(
+  gameId: number,
+  path: string,
+): Promise<void> {
+  return invoke("remove_custom_save_path", { gameId, path });
 }
 
 // ── Sync (Syncthing) ─────────────────────────────────────────────

@@ -29,35 +29,65 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
 }
 
 /**
- * Move focus within a flat list of focusable elements by a signed delta.
- * Clamps to bounds and scrolls the newly-focused element into view.
+ * Returns focusable elements inside a specific zone.
  */
-function moveFocus(focusable: HTMLElement[], delta: number): boolean {
-  const active = document.activeElement as HTMLElement;
-  const idx = focusable.indexOf(active);
-  if (idx === -1) return false;
-  const next = Math.max(0, Math.min(idx + delta, focusable.length - 1));
-  if (next === idx) return false;
-  focusable[next].focus();
-  focusable[next].scrollIntoView({ block: "nearest", behavior: "smooth" });
-  return true;
+function getZoneFocusable(container: HTMLElement, zone: string): HTMLElement[] {
+  const zoneEl = container.querySelector<HTMLElement>(`[data-nav-zone="${zone}"]`);
+  if (!zoneEl) return [];
+  return Array.from(zoneEl.querySelectorAll<HTMLElement>("[data-deck-focusable]"));
 }
 
 /**
- * Enables arrow-key + native gamepad grid navigation within a container.
+ * Get the zone name that the currently focused element belongs to.
+ */
+function getActiveZone(container: HTMLElement): string | null {
+  const active = document.activeElement as HTMLElement;
+  if (!active || !container.contains(active)) return null;
+  const zone = active.closest("[data-nav-zone]");
+  return zone?.getAttribute("data-nav-zone") ?? null;
+}
+
+/**
+ * Get all zone names in document order within a container.
+ */
+function getZoneOrder(container: HTMLElement): string[] {
+  const zones = container.querySelectorAll<HTMLElement>("[data-nav-zone]");
+  return Array.from(zones).map((z) => z.getAttribute("data-nav-zone")!);
+}
+
+/**
+ * Get the zone type: "horizontal" (top bar, sub-tabs) or "grid" (content).
+ */
+function getZoneType(container: HTMLElement, zone: string): "horizontal" | "grid" {
+  const zoneEl = container.querySelector<HTMLElement>(`[data-nav-zone="${zone}"]`);
+  return zoneEl?.getAttribute("data-nav-type") === "grid" ? "grid" : "horizontal";
+}
+
+/**
+ * Detect column count from a grid zone's CSS grid-template-columns.
+ */
+function detectGridColumns(container: HTMLElement, zone: string): number {
+  const zoneEl = container.querySelector<HTMLElement>(`[data-nav-zone="${zone}"]`);
+  if (!zoneEl) return 1;
+  const style = getComputedStyle(zoneEl);
+  const cols = style.gridTemplateColumns;
+  if (!cols || cols === "none") return 1;
+  return cols.split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Enables zone-aware D-pad / arrow-key / analog-stick navigation.
  *
- * Keyboard: Arrow keys for navigation (fallback / Desktop Mode).
+ * Mark zones with `data-nav-zone="name"` and `data-nav-type="horizontal"|"grid"`.
+ * Horizontal zones: left/right navigates within; down goes to next zone.
+ * Grid zones: arrow keys navigate in a grid with dynamically detected columns;
+ * up from top row goes to previous zone.
  *
- * Gamepad: Listens to `gamepad-event` Tauri events emitted by the Rust
- * gilrs backend (reads /dev/input/event* directly via evdev on Linux,
- * WGI on Windows). This bypasses WebKitGTK's missing Gamepad API.
- *
- * D-pad & left-stick for navigation, A to confirm, B to go back.
- * Elements must have the `data-deck-focusable` attribute.
+ * Falls back to flat navigation when no zones are defined.
  */
 export function useGridNav(
   containerRef: RefObject<HTMLElement | null>,
-  columns: number,
+  fallbackColumns: number,
 ) {
   const lastNavTime = useRef(0);
 
@@ -65,20 +95,124 @@ export function useGridNav(
     (dir: "up" | "down" | "left" | "right") => {
       const container = containerRef.current;
       if (!container) return;
-      const focusable = getFocusable(container);
-      if (focusable.length === 0) return;
 
-      if (!focusable.includes(document.activeElement as HTMLElement)) {
-        focusable[0].focus();
-        focusable[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
+      const zones = getZoneOrder(container);
+
+      // ── Flat navigation fallback (no zones defined) ──
+      if (zones.length === 0) {
+        const focusable = getFocusable(container);
+        if (focusable.length === 0) return;
+        const active = document.activeElement as HTMLElement;
+        if (!focusable.includes(active)) {
+          focusable[0].focus();
+          focusable[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
+          return;
+        }
+        const idx = focusable.indexOf(active);
+        const delta =
+          dir === "right" ? 1 : dir === "left" ? -1 : dir === "down" ? fallbackColumns : -fallbackColumns;
+        const next = Math.max(0, Math.min(idx + delta, focusable.length - 1));
+        if (next !== idx) {
+          focusable[next].focus();
+          focusable[next].scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
         return;
       }
 
-      const delta =
-        dir === "right" ? 1 : dir === "left" ? -1 : dir === "down" ? columns : -columns;
-      moveFocus(focusable, delta);
+      // ── Zone-aware navigation ──
+      const activeZone = getActiveZone(container);
+
+      // Nothing focused yet → focus first element in first zone
+      if (!activeZone) {
+        for (const z of zones) {
+          const items = getZoneFocusable(container, z);
+          if (items.length > 0) {
+            items[0].focus();
+            items[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
+            return;
+          }
+        }
+        return;
+      }
+
+      const zoneType = getZoneType(container, activeZone);
+      const items = getZoneFocusable(container, activeZone);
+      const active = document.activeElement as HTMLElement;
+      const idx = items.indexOf(active);
+
+      if (zoneType === "horizontal") {
+        // Horizontal zone: left/right within, down/up to adjacent zones
+        if (dir === "left" && idx > 0) {
+          items[idx - 1].focus();
+          items[idx - 1].scrollIntoView({ block: "nearest", behavior: "smooth" });
+        } else if (dir === "right" && idx < items.length - 1) {
+          items[idx + 1].focus();
+          items[idx + 1].scrollIntoView({ block: "nearest", behavior: "smooth" });
+        } else if (dir === "down") {
+          // Move to next zone
+          const zIdx = zones.indexOf(activeZone);
+          for (let i = zIdx + 1; i < zones.length; i++) {
+            const nextItems = getZoneFocusable(container, zones[i]);
+            if (nextItems.length > 0) {
+              nextItems[0].focus();
+              nextItems[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
+              return;
+            }
+          }
+        } else if (dir === "up") {
+          // Move to previous zone
+          const zIdx = zones.indexOf(activeZone);
+          for (let i = zIdx - 1; i >= 0; i--) {
+            const prevItems = getZoneFocusable(container, zones[i]);
+            if (prevItems.length > 0) {
+              prevItems[prevItems.length - 1].focus();
+              prevItems[prevItems.length - 1].scrollIntoView({ block: "nearest", behavior: "smooth" });
+              return;
+            }
+          }
+        }
+      } else {
+        // Grid zone: navigate in columns
+        const columns = detectGridColumns(container, activeZone);
+        const row = Math.floor(idx / columns);
+        const col = idx % columns;
+
+        if (dir === "right" && idx < items.length - 1) {
+          items[idx + 1].focus();
+          items[idx + 1].scrollIntoView({ block: "nearest", behavior: "smooth" });
+        } else if (dir === "left" && idx > 0) {
+          items[idx - 1].focus();
+          items[idx - 1].scrollIntoView({ block: "nearest", behavior: "smooth" });
+        } else if (dir === "down") {
+          const nextIdx = idx + columns;
+          if (nextIdx < items.length) {
+            items[nextIdx].focus();
+            items[nextIdx].scrollIntoView({ block: "nearest", behavior: "smooth" });
+          }
+          // At bottom of grid — stay put
+        } else if (dir === "up") {
+          if (row > 0) {
+            const prevIdx = idx - columns;
+            items[prevIdx].focus();
+            items[prevIdx].scrollIntoView({ block: "nearest", behavior: "smooth" });
+          } else {
+            // Top of grid → go to previous zone
+            const zIdx = zones.indexOf(activeZone);
+            for (let i = zIdx - 1; i >= 0; i--) {
+              const prevItems = getZoneFocusable(container, zones[i]);
+              if (prevItems.length > 0) {
+                // Try to land on same column position
+                const target = Math.min(col, prevItems.length - 1);
+                prevItems[target].focus();
+                prevItems[target].scrollIntoView({ block: "nearest", behavior: "smooth" });
+                return;
+              }
+            }
+          }
+        }
+      }
     },
-    [containerRef, columns],
+    [containerRef, fallbackColumns],
   );
 
   // ── Keyboard handler (fallback) ────────────────────────────────

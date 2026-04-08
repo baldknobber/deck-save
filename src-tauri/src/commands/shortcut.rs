@@ -89,24 +89,62 @@ fn is_decksave_shortcut(s: &Shortcut<'_>) -> bool {
 }
 
 /// Locate the app icon for Steam shortcut (absolute path).
+/// On Flatpak, copies the icon from the sandbox to a host-visible path
+/// since Steam reads shortcuts.vdf from the host filesystem.
 fn find_icon_path() -> String {
-    // Flatpak: icon installed via desktop-file convention
     #[cfg(target_os = "linux")]
     {
-        let candidates = [
-            "/app/share/icons/hicolor/128x128/apps/com.baldknobber.decksave.png",
-            "/app/share/icons/hicolor/256x256/apps/com.baldknobber.decksave.png",
-        ];
-        for p in &candidates {
-            if PathBuf::from(p).exists() {
-                return p.to_string();
+        // Check if running inside Flatpak
+        let in_flatpak = std::path::Path::new("/.flatpak-info").exists();
+
+        if in_flatpak {
+            // Flatpak: /app/ paths aren't visible to the host.
+            // Copy to ~/.local/share/icons/ which IS on the host filesystem.
+            if let Ok(home) = std::env::var("HOME") {
+                let host_icon = format!(
+                    "{home}/.local/share/icons/hicolor/128x128/apps/com.baldknobber.decksave.png"
+                );
+                // If already copied, use it
+                if PathBuf::from(&host_icon).exists() {
+                    return host_icon;
+                }
+                // Try to copy from sandbox /app/ path
+                let sandbox_candidates = [
+                    "/app/share/icons/hicolor/128x128/apps/com.baldknobber.decksave.png",
+                    "/app/share/icons/hicolor/256x256/apps/com.baldknobber.decksave.png",
+                ];
+                for src in &sandbox_candidates {
+                    if PathBuf::from(src).exists() {
+                        let dest = PathBuf::from(&host_icon);
+                        if let Some(parent) = dest.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        if std::fs::copy(src, &dest).is_ok() {
+                            return host_icon;
+                        }
+                    }
+                }
+                // Fallback: return host path even if copy failed
+                return host_icon;
             }
-        }
-        // Fall back to any installed icon
-        if let Ok(home) = std::env::var("HOME") {
-            let local = format!("{home}/.local/share/icons/hicolor/128x128/apps/com.baldknobber.decksave.png");
-            if PathBuf::from(&local).exists() {
-                return local;
+        } else {
+            // Not Flatpak: check standard icon locations
+            let candidates = [
+                "/app/share/icons/hicolor/128x128/apps/com.baldknobber.decksave.png",
+                "/app/share/icons/hicolor/256x256/apps/com.baldknobber.decksave.png",
+            ];
+            for p in &candidates {
+                if PathBuf::from(p).exists() {
+                    return p.to_string();
+                }
+            }
+            if let Ok(home) = std::env::var("HOME") {
+                let local = format!(
+                    "{home}/.local/share/icons/hicolor/128x128/apps/com.baldknobber.decksave.png"
+                );
+                if PathBuf::from(&local).exists() {
+                    return local;
+                }
             }
         }
     }

@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { getSettings, updateSetting, getCachedGames } from "../lib/api";
-import { DeckButton, DeckInput, DeckToggle, DeckSelect } from "../components/deck";
+import { DeckButton, DeckInput, DeckToggle, DeckSelect, DeckStepper } from "../components/deck";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useGridNav } from "../hooks/useGridNav";
+import { useGamepad } from "../contexts/GamepadContext";
 
 export default function Settings() {
   const containerRef = useRef<HTMLDivElement>(null);
   useGridNav(containerRef, 1);
   const navigate = useNavigate();
+  const { lastInputMethod } = useGamepad();
 
   const [backupDir, setBackupDir] = useState("");
   const [autoBackup, setAutoBackup] = useState(true);
@@ -98,6 +100,11 @@ export default function Settings() {
             Browse
           </DeckButton>
         </div>
+        {lastInputMethod === "gamepad" && (
+          <p className="text-xs text-gray-500 -mt-2">
+            Use touchscreen to select folder (file picker is outside gamepad control)
+          </p>
+        )}
 
         {/* Auto-backup toggle */}
         <DeckToggle
@@ -119,15 +126,13 @@ export default function Settings() {
           ]}
         />
 
-        {/* Max versions */}
-        <DeckInput
+        {/* Max versions — stepper for gamepad */}
+        <DeckStepper
           label="Max Backup Versions Per Game"
-          type="number"
-          value={String(maxVersions)}
-          onChange={(e) => setMaxVersions(Number(e.target.value) || 5)}
+          value={maxVersions}
+          onChange={setMaxVersions}
           min={1}
           max={50}
-          className="!w-32"
         />
 
         {/* Save button */}

@@ -49,19 +49,27 @@ fn max_versions(conn: &rusqlite::Connection) -> i64 {
     .unwrap_or(5)
 }
 
-/// Fetch a game row from the DB.
+/// Fetch a game row from the DB, merging custom_save_paths with save_paths.
 pub(crate) fn get_game(conn: &rusqlite::Connection, game_id: i64) -> Result<(String, Vec<String>), String> {
     conn.query_row(
-        "SELECT title, save_paths FROM games WHERE id = ?1",
+        "SELECT title, save_paths, custom_save_paths FROM games WHERE id = ?1",
         rusqlite::params![game_id],
         |row| {
             let title: String = row.get(0)?;
             let paths_json: String = row.get(1)?;
-            Ok((title, paths_json))
+            let custom_json: String = row.get::<_, String>(2).unwrap_or_else(|_| "[]".to_string());
+            Ok((title, paths_json, custom_json))
         },
     )
-    .map(|(title, paths_json)| {
-        let paths: Vec<String> = serde_json::from_str(&paths_json).unwrap_or_default();
+    .map(|(title, paths_json, custom_json)| {
+        let mut paths: Vec<String> = serde_json::from_str(&paths_json).unwrap_or_default();
+        let custom: Vec<String> = serde_json::from_str(&custom_json).unwrap_or_default();
+        // Prepend custom paths, deduplicated
+        for cp in custom.into_iter().rev() {
+            if !paths.contains(&cp) {
+                paths.insert(0, cp);
+            }
+        }
         (title, paths)
     })
     .map_err(|e| format!("Game not found (id={game_id}): {e}"))

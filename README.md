@@ -36,6 +36,8 @@ A lightweight desktop app for **backing up and syncing game save files** across 
 
 Button hints appear automatically at the bottom of the screen when a gamepad is detected, and hide when you switch to mouse or keyboard.
 
+> **Desktop Mode note:** In Steam Deck Desktop Mode, Steam Input intercepts the controller before evdev can read it. To use a gamepad in Desktop Mode, either launch DeckSave from Gaming Mode (where Steam Input sends standard key events) or disable Steam Input for the controller in Steam's settings. This is a Steam platform limitation, not a DeckSave bug.
+
 ## How It Works
 
 ```
