@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod gamepad;
 mod manifest;
 mod path_expander;
 mod steam;
@@ -81,6 +82,9 @@ pub fn run() {
             std::thread::spawn(move || {
                 watcher::start(handle);
             });
+
+            // Start native gamepad polling (gilrs) — WebKitGTK lacks Gamepad API
+            gamepad::start(app.handle().clone());
 
             Ok(())
         })

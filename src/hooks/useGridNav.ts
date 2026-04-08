@@ -1,15 +1,23 @@
 import { useEffect, useRef, useCallback, type RefObject } from "react";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-// ── Gamepad button constants (Standard Gamepad mapping) ──────────
-const BTN_A = 0;
-const BTN_B = 1;
-const DPAD_UP = 12;
-const DPAD_DOWN = 13;
-const DPAD_LEFT = 14;
-const DPAD_RIGHT = 15;
+// ── Types for events emitted by the Rust gilrs backend ───────────
+interface GamepadButtonEvent {
+  kind: "button";
+  name: string;
+  pressed: boolean;
+}
+
+interface GamepadAxisEvent {
+  kind: "axis";
+  name: string;
+  value: number;
+}
+
+type GamepadEvent = GamepadButtonEvent | GamepadAxisEvent;
 
 const STICK_DEADZONE = 0.5;
-const NAV_REPEAT_MS = 200; // debounce interval for held buttons / stick
+const NAV_REPEAT_MS = 200;
 
 /**
  * Returns the list of focusable elements inside a container.
@@ -23,12 +31,8 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
 /**
  * Move focus within a flat list of focusable elements by a signed delta.
  * Clamps to bounds and scrolls the newly-focused element into view.
- * Returns true if focus actually moved.
  */
-function moveFocus(
-  focusable: HTMLElement[],
-  delta: number,
-): boolean {
+function moveFocus(focusable: HTMLElement[], delta: number): boolean {
   const active = document.activeElement as HTMLElement;
   const idx = focusable.indexOf(active);
   if (idx === -1) return false;
@@ -40,26 +44,23 @@ function moveFocus(
 }
 
 /**
- * Enables arrow-key + Gamepad API grid navigation within a container.
+ * Enables arrow-key + native gamepad grid navigation within a container.
  *
- * Keyboard: Arrow keys for navigation (works on desktop / when Steam Input
- * injects key events).
+ * Keyboard: Arrow keys for navigation (fallback / Desktop Mode).
  *
- * Gamepad: D-pad & left-stick for navigation, A to confirm (Enter),
- * B to go back (Escape). Uses requestAnimationFrame polling — the only
- * reliable method inside WebKitGTK / Flatpak where Steam Input keyboard
- * injection doesn't reach the webview.
+ * Gamepad: Listens to `gamepad-event` Tauri events emitted by the Rust
+ * gilrs backend (reads /dev/input/event* directly via evdev on Linux,
+ * WGI on Windows). This bypasses WebKitGTK's missing Gamepad API.
  *
- * Elements must have the `data-deck-focusable` attribute to be navigable.
+ * D-pad & left-stick for navigation, A to confirm, B to go back.
+ * Elements must have the `data-deck-focusable` attribute.
  */
 export function useGridNav(
   containerRef: RefObject<HTMLElement | null>,
   columns: number,
 ) {
   const lastNavTime = useRef(0);
-  const rafId = useRef(0);
 
-  // ── Shared navigation helper (used by both keyboard + gamepad) ─
   const navigate = useCallback(
     (dir: "up" | "down" | "left" | "right") => {
       const container = containerRef.current;
@@ -67,7 +68,6 @@ export function useGridNav(
       const focusable = getFocusable(container);
       if (focusable.length === 0) return;
 
-      // Auto-focus first element if nothing in the container is focused
       if (!focusable.includes(document.activeElement as HTMLElement)) {
         focusable[0].focus();
         focusable[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -81,7 +81,7 @@ export function useGridNav(
     [containerRef, columns],
   );
 
-  // ── Keyboard handler (existing behaviour, kept as fallback) ────
+  // ── Keyboard handler (fallback) ────────────────────────────────
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -114,7 +114,6 @@ export function useGridNav(
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    // Delay slightly so the DOM has rendered focusable children
     const id = requestAnimationFrame(() => {
       const focusable = getFocusable(container);
       if (
@@ -127,127 +126,115 @@ export function useGridNav(
     return () => cancelAnimationFrame(id);
   }, [containerRef]);
 
-  // ── Gamepad polling loop ───────────────────────────────────────
+  // ── Native gamepad events from Rust gilrs backend ──────────────
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const poll = () => {
-      const gamepads = navigator.getGamepads?.();
-      if (!gamepads) {
-        rafId.current = requestAnimationFrame(poll);
-        return;
-      }
+    let unlisten: UnlistenFn | undefined;
 
-      const gp = gamepads[0] ?? gamepads[1] ?? gamepads[2] ?? gamepads[3];
-      if (!gp) {
-        rafId.current = requestAnimationFrame(poll);
-        return;
-      }
-
+    listen<GamepadEvent>("gamepad-event", (event) => {
+      const ev = event.payload;
       const now = performance.now();
       const elapsed = now - lastNavTime.current;
 
-      // ── D-pad / left-stick navigation (debounced) ──────────
-      if (elapsed >= NAV_REPEAT_MS) {
-        let moved = false;
+      if (ev.kind === "button" && ev.pressed && elapsed >= NAV_REPEAT_MS) {
+        let handled = true;
+        switch (ev.name) {
+          case "DPadUp":
+            navigate("up");
+            break;
+          case "DPadDown":
+            navigate("down");
+            break;
+          case "DPadLeft":
+            navigate("left");
+            break;
+          case "DPadRight":
+            navigate("right");
+            break;
+          case "A": {
+            const active = document.activeElement as HTMLElement | null;
+            if (active && container.contains(active)) {
+              active.click();
+            }
+            break;
+          }
+          case "B":
+            document.dispatchEvent(
+              new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+            );
+            break;
+          default:
+            handled = false;
+        }
+        if (handled) lastNavTime.current = now;
+      }
 
-        // D-pad buttons
-        if (gp.buttons[DPAD_UP]?.pressed) {
+      // Left stick navigation
+      if (ev.kind === "axis" && elapsed >= NAV_REPEAT_MS) {
+        let moved = false;
+        if (ev.name === "LeftStickY" && ev.value < -STICK_DEADZONE) {
           navigate("up");
           moved = true;
-        } else if (gp.buttons[DPAD_DOWN]?.pressed) {
+        } else if (ev.name === "LeftStickY" && ev.value > STICK_DEADZONE) {
           navigate("down");
           moved = true;
-        } else if (gp.buttons[DPAD_LEFT]?.pressed) {
+        } else if (ev.name === "LeftStickX" && ev.value < -STICK_DEADZONE) {
           navigate("left");
           moved = true;
-        } else if (gp.buttons[DPAD_RIGHT]?.pressed) {
+        } else if (ev.name === "LeftStickX" && ev.value > STICK_DEADZONE) {
           navigate("right");
           moved = true;
         }
-
-        // Left stick (axes 0 = X, 1 = Y) — only if D-pad didn't fire
-        if (!moved) {
-          const lx = gp.axes[0] ?? 0;
-          const ly = gp.axes[1] ?? 0;
-          if (ly < -STICK_DEADZONE) {
-            navigate("up");
-            moved = true;
-          } else if (ly > STICK_DEADZONE) {
-            navigate("down");
-            moved = true;
-          } else if (lx < -STICK_DEADZONE) {
-            navigate("left");
-            moved = true;
-          } else if (lx > STICK_DEADZONE) {
-            navigate("right");
-            moved = true;
-          }
-        }
-
         if (moved) lastNavTime.current = now;
       }
+    }).then((fn) => {
+      unlisten = fn;
+    });
 
-      // ── A button → Enter (confirm / activate) ─────────────
-      if (gp.buttons[BTN_A]?.pressed && elapsed >= NAV_REPEAT_MS) {
-        const active = document.activeElement as HTMLElement | null;
-        if (active && container.contains(active)) {
-          active.click();
-          lastNavTime.current = now;
-        }
-      }
-
-      // ── B button → Escape (close modal / go back) ─────────
-      if (gp.buttons[BTN_B]?.pressed && elapsed >= NAV_REPEAT_MS) {
-        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-        lastNavTime.current = now;
-      }
-
-      rafId.current = requestAnimationFrame(poll);
+    return () => {
+      unlisten?.();
     };
-
-    rafId.current = requestAnimationFrame(poll);
-    return () => cancelAnimationFrame(rafId.current);
   }, [containerRef, navigate]);
 }
 
 // ── Shoulder-button hook (L1/R1 tab switching) ───────────────────
-// Separated from useGridNav so Layout.tsx can use it without a grid container.
 
-const BTN_L1 = 4;
-const BTN_R1 = 5;
 const TAB_REPEAT_MS = 300;
 
 /**
- * Polls gamepad shoulder buttons (L1 / R1) and calls `onSwitch(-1 | 1)`.
- * Intended for switching between tabs in the Layout bottom bar.
+ * Listens for L1/R1 gamepad button events and calls `onSwitch(-1 | 1)`.
+ * Uses native gilrs events instead of navigator.getGamepads().
  */
 export function useShoulderNav(onSwitch: (delta: -1 | 1) => void) {
   const lastTime = useRef(0);
-  const rafId = useRef(0);
   const cbRef = useRef(onSwitch);
   cbRef.current = onSwitch;
 
   useEffect(() => {
-    const poll = () => {
-      const gamepads = navigator.getGamepads?.();
-      const gp = gamepads?.[0] ?? gamepads?.[1] ?? gamepads?.[2] ?? gamepads?.[3];
-      if (gp) {
-        const now = performance.now();
-        if (now - lastTime.current >= TAB_REPEAT_MS) {
-          if (gp.buttons[BTN_L1]?.pressed) {
-            cbRef.current(-1);
-            lastTime.current = now;
-          } else if (gp.buttons[BTN_R1]?.pressed) {
-            cbRef.current(1);
-            lastTime.current = now;
-          }
-        }
+    let unlisten: UnlistenFn | undefined;
+
+    listen<GamepadEvent>("gamepad-event", (event) => {
+      const ev = event.payload;
+      if (ev.kind !== "button" || !ev.pressed) return;
+
+      const now = performance.now();
+      if (now - lastTime.current < TAB_REPEAT_MS) return;
+
+      if (ev.name === "L1") {
+        cbRef.current(-1);
+        lastTime.current = now;
+      } else if (ev.name === "R1") {
+        cbRef.current(1);
+        lastTime.current = now;
       }
-      rafId.current = requestAnimationFrame(poll);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
     };
-    rafId.current = requestAnimationFrame(poll);
-    return () => cancelAnimationFrame(rafId.current);
   }, []);
 }

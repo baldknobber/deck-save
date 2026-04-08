@@ -33,6 +33,7 @@ notify-debouncer-mini = "0.6"
 steam_shortcuts_util = "1.1"
 flate2 = "1"
 tar = "0.4"
+gilrs = "0.11"
 
 [target.'cfg(windows)'.dependencies]
 tauri = { version = "2", features = ["tray-icon"] }

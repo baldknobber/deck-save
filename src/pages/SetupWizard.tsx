@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { listen } from "@tauri-apps/api/event";
 import { DeckButton, DeckCard } from "../components/deck";
 import { useGridNav } from "../hooks/useGridNav";
 import {
@@ -40,28 +41,29 @@ export default function SetupWizard() {
   const [syncError, setSyncError] = useState("");
   const [syncDone, setSyncDone] = useState(false);
 
-  // ── Gamepad detection ──────────────────────────────────────────
+  // ── Gamepad detection (via native gilrs events) ─────────────────
   useEffect(() => {
     if (step !== "gamepad") return;
-    let raf = 0;
-    const poll = () => {
-      const gps = navigator.getGamepads?.();
-      if (gps) {
-        for (const gp of gps) {
-          if (gp) {
-            setGamepadDetected(gp.id);
-            // Check if A button pressed to advance
-            if (gp.buttons[0]?.pressed) {
-              setStep("steam");
-              return;
-            }
-          }
+    let unlisten: (() => void) | undefined;
+
+    listen<{ kind: string; name: string; pressed?: boolean }>(
+      "gamepad-event",
+      (event) => {
+        const ev = event.payload;
+        // Any event means a gamepad is connected
+        setGamepadDetected("Gamepad connected");
+        // A button press advances to next step
+        if (ev.kind === "button" && ev.name === "A" && ev.pressed) {
+          setStep("steam");
         }
-      }
-      raf = requestAnimationFrame(poll);
+      },
+    ).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
     };
-    raf = requestAnimationFrame(poll);
-    return () => cancelAnimationFrame(raf);
   }, [step]);
 
   // ── Steam shortcut check on step enter ─────────────────────────
