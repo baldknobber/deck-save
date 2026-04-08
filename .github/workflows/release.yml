@@ -81,48 +81,48 @@ jobs:
           name: release-${{ matrix.target }}
           path: release-artifacts/
 
+      - name: Upload Linux binary for Flatpak
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binary
+          path: src-tauri/target/${{ matrix.target }}/release/deck-save
+
   build-flatpak:
     needs: build-and-release
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:gnome-47
+      options: --privileged
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Linux artifacts
+      - name: Download Linux binary
         uses: actions/download-artifact@v4
         with:
-          name: release-x86_64-unknown-linux-gnu
-          path: release-artifacts/
+          name: linux-binary
+          path: flatpak/
 
-      - name: Extract binary from deb and copy icons
+      - name: Prepare Flatpak sources
         run: |
-          mkdir -p deb-extract
-          dpkg-deb -x release-artifacts/*.deb deb-extract/
-          find deb-extract -type f -name 'deck-save' -o -name 'DeckSave' | head -1 | xargs -I{} cp {} flatpak/deck-save
           chmod +x flatpak/deck-save
-          ls -la flatpak/deck-save
-          cp src-tauri/icons/32x32.png flatpak/32x32.png
-          cp src-tauri/icons/64x64.png flatpak/64x64.png
-          cp src-tauri/icons/128x128.png flatpak/128x128.png
+          cp src-tauri/icons/32x32.png flatpak/
+          cp src-tauri/icons/64x64.png flatpak/
+          cp src-tauri/icons/128x128.png flatpak/
 
-      - name: Install Flatpak tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder
-          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y flathub org.gnome.Platform//47 org.gnome.Sdk//47
-
-      - name: Build Flatpak
-        run: |
-          cd flatpak
-          flatpak-builder --force-clean --disable-updates --repo=repo builddir com.baldknobber.decksave.yml
-          flatpak build-bundle repo DeckSave.flatpak com.baldknobber.decksave
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: DeckSave.flatpak
+          manifest-path: flatpak/com.baldknobber.decksave.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          upload-artifact: false
 
       - name: Upload Flatpak artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-flatpak
-          path: flatpak/DeckSave.flatpak
+          path: DeckSave.flatpak
 
   publish:
     needs: [build-and-release, build-flatpak]
